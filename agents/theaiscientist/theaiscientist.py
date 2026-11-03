@@ -98,6 +98,7 @@ class TheAIScientistAgent(BaseAgent):
             import subprocess
             from subprocess import TimeoutExpired
             from benchmark.executor import SubprocessResult
+            from benchmark.utils import env_command
             def run_commands(commands: List[str], timeout: int = None) -> SubprocessResult:
                 """Execute command list (including conda environment handling)"""
                 if not commands:
@@ -112,7 +113,7 @@ class TheAIScientistAgent(BaseAgent):
 
                 for cmd in commands:
                     cmd_parts = cmd.split()
-                    full_cmd = ["conda", "run", "--no-capture-output", "-n", conda_env] + cmd_parts
+                    full_cmd, env = env_command(conda_env, cmd_parts)
 
                     try:
                         print(f"Running command: {' '.join(full_cmd)}")
@@ -121,6 +122,7 @@ class TheAIScientistAgent(BaseAgent):
                         result = subprocess.run(
                             full_cmd,
                             cwd=cwd,
+                            env=env,
                             stderr=subprocess.PIPE,
                             text=True,
                             timeout=timeout

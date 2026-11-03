@@ -25,6 +25,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 WORKSPACE = PROJECT_ROOT / "workspace"
 ML_TASKS = PROJECT_ROOT / "ml_tasks"
+# uv-managed envs live outside the repo (keep them on local disk, not network FS).
+UV_ENVS = Path(os.environ.get("FMLBENCH_UV_ENVS", "~/fml_envs")).expanduser()
+# PyTorch wheels built for CUDA 12.8 (first release line supporting Blackwell / sm_120).
+TORCH_CU128 = "--index-url https://download.pytorch.org/whl/cu128"
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +97,40 @@ def conda_create(name: str, python_version: str, pip_steps: list) -> None:
         run(["bash", "-lc", full])
 
 
+def uv_env_dir(name: str) -> Path:
+    return UV_ENVS / name
+
+
+def uv_env_exists(name: str) -> bool:
+    return (uv_env_dir(name) / "bin" / "python").exists()
+
+
+def uv_env_vars(name: str) -> dict:
+    """Environment that makes `python`/`pip` resolve to the uv env (like `conda activate`)."""
+    d = uv_env_dir(name)
+    return {**os.environ, "VIRTUAL_ENV": str(d), "PATH": f"{d / 'bin'}:{os.environ['PATH']}"}
+
+
+def uv_create(name: str, python_version: str, install_steps: list) -> None:
+    """Create a uv venv under UV_ENVS and run install steps inside it.
+
+    Each step is a shell string executed with the env activated, so it can use
+    `uv pip install ...` (installs into $VIRTUAL_ENV).
+    """
+    if uv_env_exists(name):
+        info(f"uv env '{name}' already exists at {uv_env_dir(name)}, skipping")
+        return
+    info(f"creating uv env '{name}' (python={python_version}) at {uv_env_dir(name)}")
+    run(["uv", "venv", "--python", python_version, "--seed", str(uv_env_dir(name))])
+    for step in install_steps:
+        run(["bash", "-c", step], env=uv_env_vars(name))
+
+
+def uv_run(env: str, script: str, cwd=None) -> None:
+    """Run a Python snippet inside a uv env."""
+    run([str(uv_env_dir(env) / "bin" / "python"), "-c", script], cwd=cwd, env=uv_env_vars(env))
+
+
 # ---------------------------------------------------------------------------
 # Repo / dataset helpers
 # ---------------------------------------------------------------------------
@@ -158,7 +196,7 @@ def setup_generalization_domainbed(args):
     template = WORKSPACE / "Generalization_domainbed"
     if not (template / "data" / "MNIST" / "raw").exists():
         info("downloading MNIST for domainbed")
-        conda_run("domainbed", f"""
+        uv_run("domainbed", f"""
 import torchvision
 torchvision.datasets.MNIST(root=r'{template/"data"}', train=True,  download=True)
 torchvision.datasets.MNIST(root=r'{template/"data"}', train=False, download=True)
@@ -260,7 +298,7 @@ def setup_privacy_privacymeter(args):
     pkl = repo / "data" / "cifar10.pkl"
     if not pkl.exists():
         info("downloading CIFAR-10 + generating pkl files for privacymeter")
-        conda_run("privacy_meter", f"""
+        uv_run("privacy_meter", f"""
 import os, pickle, torchvision
 from torchvision import transforms
 path = r'{repo / "data" / "cifar10"}'
@@ -361,7 +399,7 @@ def setup_continual_learning_pycil(args):
         return
     if not (repo / "data" / "cifar-100-python").exists():
         info("downloading CIFAR-100 for pycil")
-        conda_run("pycil", f"""
+        uv_run("pycil", f"""
 import torchvision
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
@@ -381,7 +419,7 @@ def setup_privacy_opacus(args):
     if not (repo / "data" / "cifar-10-batches-py").exists():
         info("downloading CIFAR-10 for opacus")
         # cd to PROJECT_ROOT to avoid python importing the local opacus/ folder
-        conda_run("opacus", f"""
+        uv_run("opacus", f"""
 import torchvision
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=False, download=True)
@@ -397,7 +435,7 @@ def setup_data_efficiency_usb(args):
         return
     if not (repo / "data" / "cifar-100-python").exists():
         info("downloading CIFAR-100 for usb")
-        conda_run("usb", f"""
+        uv_run("usb", f"""
 import torchvision
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
@@ -437,7 +475,7 @@ def setup_robustness_openood(args):
              not (repo / "data" / "svhn").exists())
     if needs:
         info("downloading CIFAR-10/100 + SVHN for openood")
-        conda_run("openood", f"""
+        uv_run("openood", f"""
 import torchvision
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=False, download=True)
@@ -475,27 +513,31 @@ def setup_unlearning(args):
 
 def setup_conda_env_fmlbench():
     """Harness env used by run_agent_benchmark.py."""
-    conda_create("fmlbench", "3.11", [
-        "pip install aider-chat==0.85.1",
-        "pip install anthropic==0.84.0 backoff==2.2.1 openai==1.91.0 google-generativeai==0.8.5 "
+    # nodejs (conda-forge only) dropped: only jupyterlab extensions need it, the harness does not.
+    uv_create("fmlbench", "3.11", [
+        "uv pip install aider-chat==0.85.1",
+        "uv pip install 'anthropic[bedrock]==0.84.0' backoff==2.2.1 openai==1.91.0 google-generativeai==0.8.5 "
         "matplotlib==3.10.8 pypdf==6.9.0 pymupdf4llm==1.27.2.1 torch==2.10.0 numpy==1.26.4 "
         "transformers==5.3.0 datasets==4.7.0 tiktoken==0.9.0 wandb==0.25.1 tqdm==4.67.1",
-        "pip install gpytorch==1.15.2 umap-learn==0.5.11 scikit-learn==1.8.0",
-        "pip install jupyterlab",
-        "conda install -c conda-forge nodejs -y",
+        "uv pip install gpytorch==1.15.2 umap-learn==0.5.11 scikit-learn==1.8.0",
+        "uv pip install jupyterlab",
     ])
 
 
 CONDA_ENVS = {
     "fmlbench": setup_conda_env_fmlbench,
-    "domainbed": lambda: conda_create("domainbed", "3.10", [
-        "conda install mkl==2023.1.0 mkl-service==2.4.0 pytorch==1.12.1 torchvision==0.13.1 "
-        "torchaudio==0.12.1 cudatoolkit=11.3 -c pytorch -y",
-        "pip install mkl-fft==1.3.11 mkl-random==1.2.8 backpack-for-pytorch==1.3.0 numpy==1.22.4 "
+    # conda pytorch 1.12.1+cudatoolkit 11.3 -> pip torch 2.7.1+cu128 (Blackwell). mkl/mkl-service/
+    # mkl-fft/mkl-random only backed conda's MKL build of pytorch; pip wheels don't need them.
+    # backpack-for-pytorch 1.3.0 pins torch<2.0 (would downgrade torch); 1.7.1 supports torch>=2.2.
+    # It is only used by the Fishr algorithm (optional import in domainbed/algorithms.py).
+    "domainbed": lambda: uv_create("domainbed", "3.10", [
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 {TORCH_CU128}",
+        "uv pip install backpack-for-pytorch==1.7.1 numpy==1.22.4 "
         "wilds==2.0.0 tqdm==4.66.4 imageio==2.9.0 gdown==3.13.0 parameterized==0.9.0 "
-        "Pillow==10.3.0 timm==0.9.16",
-        "pip install weco==0.3.0",
-        'pip install "setuptools<81"',
+        # timm 0.9.16 imports huggingface_hub APIs removed in 1.x; unpinned it resolves to 2.x.
+        'Pillow==10.3.0 timm==0.9.16 "huggingface_hub<1.0"',
+        "uv pip install weco==0.3.0",
+        'uv pip install "setuptools<81"',
     ]),
     "easyfsl": lambda: conda_create("easyfsl", "3.10", [
         'pip install "matplotlib>=3.0.0" "pandas>=1.5.0" "torch==2.9.1" "torchvision==0.24.1" '
@@ -532,21 +574,25 @@ CONDA_ENVS = {
         "pip install weco==0.3.0",
         'pip install "setuptools<81"',
     ]),
-    "art": lambda: conda_create("art", "3.10", [
-        "pip install tensorflow-gpu==2.10.1",
-        "pip install numpy==1.23.5",
-        "pip install matplotlib tqdm",
-        'pip install "scipy>=1.4.1" scikit-learn==1.7.2',
-        "pip install weco==0.3.0",
-        'pip install "setuptools<81"',
+    # Unchanged pins. TF 2.10 has no Blackwell support (and no CUDA 11 libs here), so it runs on CPU.
+    "art": lambda: uv_create("art", "3.10", [
+        "uv pip install tensorflow-gpu==2.10.1",
+        "uv pip install numpy==1.23.5",
+        "uv pip install matplotlib tqdm",
+        'uv pip install "scipy>=1.4.1" scikit-learn==1.7.2',
+        "uv pip install weco==0.3.0",
+        'uv pip install "setuptools<81"',
     ]),
-    "privacy_meter": lambda: conda_create("privacy_meter", "3.12", [
-        f"pip install -r {WORKSPACE/'Privacy_privacymeter/ml_privacy_meter/requirements.txt'}",
-        "pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 "
-        "--extra-index-url https://download.pytorch.org/whl/cu118",
-        "pip install numpy==1.26.3 scipy==1.14.1 scikit-learn==1.5.2 opacus==1.5.2 "
+    # torch 2.4.1+cu118 -> 2.7.1+cu128 (Blackwell). The repo's requirements.txt pins the cu118
+    # torch stack (torch/triton/nvidia-*-cu11), so install it without those lines.
+    "privacy_meter": lambda: uv_create("privacy_meter", "3.12", [
+        "grep -vE '^(torch|torchvision|torchaudio|triton|nvidia-|--extra-index-url)' "
+        f"{WORKSPACE/'Privacy_privacymeter/ml_privacy_meter/requirements.txt'} > /tmp/privacy_meter_requirements.txt "
+        "&& uv pip install -r /tmp/privacy_meter_requirements.txt",
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 {TORCH_CU128}",
+        "uv pip install numpy==1.26.3 scipy==1.14.1 scikit-learn==1.5.2 opacus==1.5.2 "
         "matplotlib==3.9.2",
-        "pip install weco==0.3.0",
+        "uv pip install weco==0.3.0",
     ]),
     "aif360": lambda: conda_create("aif360", "3.10", [
         'conda install "numpy<2" scipy pandas scikit-learn==1.1.3 "matplotlib==3.8.4" tqdm seaborn -y',
@@ -568,24 +614,24 @@ CONDA_ENVS = {
         "pip install gcastle==1.0.4 numpy==2.0.2 scipy==1.13.1 scikit-learn==1.6.1 tqdm==4.67.3",
         "pip install torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu",
     ]),
-    "pycil": lambda: conda_create("pycil", "3.10", [
-        "pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 "
-        "--index-url https://download.pytorch.org/whl/cu121",
-        "pip install tqdm==4.67.3 numpy==2.2.6 scipy==1.15.3 quadprog==0.1.13 POT==0.9.6.post1 "
+    # torch 2.5.1+cu121 -> 2.7.1+cu128 for Blackwell (sm_120) support.
+    "pycil": lambda: uv_create("pycil", "3.10", [
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 {TORCH_CU128}",
+        "uv pip install tqdm==4.67.3 numpy==2.2.6 scipy==1.15.3 quadprog==0.1.13 POT==0.9.6.post1 "
         "scikit-learn==1.7.2 pillow==12.1.1",
-        'pip install "setuptools<81"',
+        'uv pip install "setuptools<81"',
     ]),
-    "opacus": lambda: conda_create("opacus", "3.10", [
-        "pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 "
-        "--index-url https://download.pytorch.org/whl/cu121",
-        "pip install opacus==1.5.4 numpy==2.2.6 scipy==1.15.3",
-        'pip install "setuptools<81"',
+    # torch 2.5.1+cu121 -> 2.7.1+cu128 for Blackwell (sm_120) support.
+    "opacus": lambda: uv_create("opacus", "3.10", [
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 {TORCH_CU128}",
+        "uv pip install opacus==1.5.4 numpy==2.2.6 scipy==1.15.3",
+        'uv pip install "setuptools<81"',
     ]),
-    "usb": lambda: conda_create("usb", "3.10", [
-        "pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 "
-        "--index-url https://download.pytorch.org/whl/cu121",
-        "pip install numpy==2.2.6 pillow==12.1.1",
-        'pip install "setuptools<81"',
+    # torch 2.5.1+cu121 -> 2.7.1+cu128 for Blackwell (sm_120) support.
+    "usb": lambda: uv_create("usb", "3.10", [
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 torchaudio==2.7.1+cu128 {TORCH_CU128}",
+        "uv pip install numpy==2.2.6 pillow==12.1.1",
+        'uv pip install "setuptools<81"',
     ]),
     "sololearn": lambda: conda_create("sololearn", "3.10", [
         "pip install torch==2.1.0+cu121 torchvision==0.16.0+cu121 "
@@ -593,10 +639,10 @@ CONDA_ENVS = {
         'pip install "numpy==1.26.4" pillow==12.1.1',
         'pip install "setuptools<81"',
     ]),
-    "openood": lambda: conda_create("openood", "3.9", [
-        "pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 "
-        "--index-url https://download.pytorch.org/whl/cu121",
-        "pip install scikit-learn==1.6.1 numpy==2.0.2 scipy==1.13.1",
+    # torch 2.5.1+cu121 -> 2.7.1+cu128 for Blackwell (sm_120) support.
+    "openood": lambda: uv_create("openood", "3.9", [
+        f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 {TORCH_CU128}",
+        "uv pip install scikit-learn==1.6.1 numpy==2.0.2 scipy==1.13.1",
     ]),
     "pfllib": lambda: conda_create("pfllib", "3.11", [
         "pip install torch==2.0.1 torchvision==0.15.2",

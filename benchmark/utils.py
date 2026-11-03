@@ -8,6 +8,28 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, List, Union, Set, Optional
 
+# Per-task uv envs built by setup.py (same FMLBENCH_UV_ENVS override).
+UV_ENVS = Path(os.environ.get("FMLBENCH_UV_ENVS", "~/fml_envs")).expanduser()
+
+
+def env_command(env_name: str, args: List[str]):
+    """
+    Wrap *args* so they run inside the task env named in config.json's ``conda_env``.
+
+    Uses the uv venv ``UV_ENVS/<env_name>`` when it exists (activated via VIRTUAL_ENV +
+    PATH), otherwise falls back to ``conda run``.
+
+    Returns:
+        (full_cmd, env) for subprocess; env is None for the conda fallback.
+    """
+    venv = UV_ENVS / env_name
+    if (venv / "bin" / "python").exists():
+        env = {**os.environ, "VIRTUAL_ENV": str(venv),
+               "PATH": f"{venv / 'bin'}:{os.environ.get('PATH', '')}"}
+        env.pop("PYTHONHOME", None)
+        return list(args), env
+    return ["conda", "run", "--no-capture-output", "-n", env_name, *args], None
+
 
 def get_changed_files(
     repo_path: str, 

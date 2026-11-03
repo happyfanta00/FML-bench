@@ -17,7 +17,10 @@ from typing import Dict, List, Optional, Tuple
 import backoff
 import openai
 
-from .llm import create_client
+from .llm import (
+    claude_messages_create, claude_response_text, create_client, extract_usage_info,
+    is_anthropic_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,23 +147,31 @@ class CodeEditor:
 
         # 3. Single LLM call
         try:
-            # Build API kwargs — use defaults only (many models reject
-            # custom temperature or max_tokens)
-            api_kwargs = dict(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
+            if is_anthropic_client(self.client):
+                response = claude_messages_create(
+                    self.client, self.model_name, system_prompt,
+                    [{"role": "user", "content": user_prompt}],
+                )
+                content = claude_response_text(response)
+                token_usage = extract_usage_info(response)
+            else:
+                # Build API kwargs — use defaults only (many models reject
+                # custom temperature or max_tokens)
+                api_kwargs = dict(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                )
 
-            response = self.client.chat.completions.create(**api_kwargs)
-            content = response.choices[0].message.content
-            token_usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
-            }
+                response = self.client.chat.completions.create(**api_kwargs)
+                content = response.choices[0].message.content
+                token_usage = {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
         except Exception as e:
             logger.error("LLM call failed: %s", e)
             return EditResult(success=False, error=f"LLM call failed: {e}")

@@ -13,7 +13,7 @@ import subprocess
 from datetime import datetime
 from typing import Optional
 
-from benchmark.utils import get_changed_files
+from benchmark.utils import env_command, get_changed_files
 
 
 class SubprocessResult:
@@ -239,18 +239,19 @@ class BenchmarkExecutor:
 
     def _run_command(self, command: str) -> SubprocessResult:
         """
-        Execute a single command string inside the configured conda environment.
+        Execute a single command string inside the configured task environment
+        (uv venv if built, else conda; see benchmark.utils.env_command).
 
         Uses process group (os.setpgrp) so that on timeout the entire process tree
         (including grandchildren spawned by conda/bash) is killed reliably.
 
         Args:
-            command: The command string to execute (passed as-is to bash -c inside the conda env).
+            command: The command string to execute (passed as-is to bash -c inside the task env).
 
         Returns:
             SubprocessResult with returncode, stdout, and stderr.
         """
-        full_cmd = ["conda", "run", "--no-capture-output", "-n", self.conda_env, "bash", "-c", command]
+        full_cmd, env = env_command(self.conda_env, ["bash", "-c", command])
 
         try:
             print(f"Running command: {' '.join(full_cmd)}")
@@ -259,6 +260,7 @@ class BenchmarkExecutor:
             proc = subprocess.Popen(
                 full_cmd,
                 cwd=osp.abspath(self.repo_dir),
+                env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,

@@ -13,10 +13,43 @@ from google.generativeai.types import GenerationConfig
 
 MAX_NUM_TOKENS = 8192
 
+# Native Anthropic clients (Messages API). Current Claude models (e.g. Opus 5.5) always think,
+# and thinking counts toward max_tokens, so these calls stream with a larger cap; they also
+# reject temperature, so depth is set via output_config.effort instead.
+CLAUDE_MAX_TOKENS = 64000
+CLAUDE_EFFORT = os.environ.get("FMLBENCH_CLAUDE_EFFORT", "high")
+ANTHROPIC_CLIENTS = (anthropic.Anthropic, anthropic.AnthropicBedrock, anthropic.AnthropicVertex)
+
 AVAILABLE_PROVIDERS = [
     "OpenRouter",
     "OpenAI",
+    "AnthropicBedrock",
 ]
+
+
+def is_anthropic_client(client) -> bool:
+    return isinstance(client, ANTHROPIC_CLIENTS)
+
+
+def claude_messages_create(client, model, system_message, messages):
+    """One Messages API call on a native Anthropic client; returns the final Message."""
+    with client.messages.stream(
+        model=model,
+        max_tokens=CLAUDE_MAX_TOKENS,
+        system=system_message,
+        messages=messages,
+        output_config={"effort": CLAUDE_EFFORT},
+    ) as stream:
+        response = stream.get_final_message()
+    if response.stop_reason == "refusal":
+        raise RuntimeError(f"Claude declined the request: {getattr(response, 'stop_details', None)}")
+    if response.stop_reason == "max_tokens":
+        print(f"Warning: Claude response truncated at max_tokens={CLAUDE_MAX_TOKENS}")
+    return response
+
+
+def claude_response_text(response) -> str:
+    return "".join(b.text for b in response.content if b.type == "text")
 
 AVAILABLE_LLMS = [
     # Anthropic models
@@ -85,8 +118,16 @@ def extract_usage_info(response) -> dict:
         "total_tokens": 0
     }
     
+    # Extract from Anthropic Messages response (usage has input_tokens/output_tokens)
+    if hasattr(response, 'usage') and hasattr(response.usage, 'input_tokens'):
+        usage = response.usage
+        usage_info["prompt_tokens"] = (usage.input_tokens + (usage.cache_read_input_tokens or 0)
+                                       + (usage.cache_creation_input_tokens or 0))
+        usage_info["completion_tokens"] = usage.output_tokens
+        usage_info["total_tokens"] = usage_info["prompt_tokens"] + usage.output_tokens
+
     # Extract from OpenAI/OpenRouter response
-    if hasattr(response, 'usage'):
+    elif hasattr(response, 'usage'):
         usage = response.usage
         usage_info["prompt_tokens"] = getattr(usage, 'prompt_tokens', 0)
         usage_info["completion_tokens"] = getattr(usage, 'completion_tokens', 0)
@@ -250,23 +291,14 @@ def get_response_from_llm(
                     ],
                 }
             ]
-            response = client.messages.create(
-                model=model,
-                max_tokens=MAX_NUM_TOKENS,
-                temperature=temperature,
-                system=system_message,
-                messages=new_msg_history,
-            )
-            content = response.content[0].text
+            response = claude_messages_create(client, model, system_message, new_msg_history)
+            content = claude_response_text(response)
+            # Keep the full assistant content (incl. thinking blocks) so multi-turn replays
+            # pass thinking back unchanged, as the API requires.
             new_msg_history = new_msg_history + [
                 {
                     "role": "assistant",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": content,
-                        }
-                    ],
+                    "content": [b.model_dump(exclude_none=True) for b in response.content],
                 }
             ]
     elif 'gpt' in model:
@@ -506,7 +538,14 @@ def create_client(model, provider='OpenAI'):
             api_key=os.environ["GEMINI_API_KEY"],
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
         ), model
-    
+
+    elif provider == 'AnthropicBedrock':
+        # Credentials come from the standard AWS chain (env vars, profile, or instance role).
+        # model is a Bedrock inference-profile ID, e.g. us.anthropic.claude-opus-5-5
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
+        print(f"Using Amazon Bedrock ({region}) with model {model}.")
+        return anthropic.AnthropicBedrock(aws_region=region, max_retries=8), model
+
     else:
         raise NotImplementedError(f"Provider {provider} not implemented.")
 
