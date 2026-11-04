@@ -1,0 +1,79 @@
+/home/ec2-user/fml_envs/domainbed/lib/python3.10/site-packages/outdated/__init__.py:36: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import parse_version
+Environment:
+	Python: 3.10.20
+	PyTorch: 2.7.1+cu128
+	Torchvision: 0.22.1+cu128
+	CUDA: 12.8
+	CUDNN: 90701
+	NumPy: 1.22.4
+	PIL: 10.3.0
+Args:
+	algorithm: ERM
+	checkpoint_freq: None
+	data_dir: ../data/
+	dataset: OfficeHome
+	holdout_fraction: 0.3
+	hparams: None
+	hparams_seed: 0
+	output_dir: ./results_tmp
+	save_model_every_checkpoint: False
+	seed: 0
+	skip_model_save: False
+	steps: 5001
+	task: domain_generalization
+	test_envs: [0]
+	trial_seed: 0
+	uda_holdout_fraction: 0
+HParams:
+	batch_size: 32
+	class_balanced: False
+	data_augmentation: True
+	dinov2: False
+	freeze_bn: False
+	lars: False
+	linear_steps: 500
+	lr: 5e-05
+	nonlinear_classifier: False
+	resnet18: False
+	resnet50_augmix: True
+	resnet_dropout: 0.0
+	vit: False
+	vit_attn_tune: False
+	vit_dropout: 0.0
+	weight_decay: 0.0
+/home/ec2-user/fml_envs/domainbed/lib/python3.10/site-packages/torchvision/models/_utils.py:208: UserWarning: The parameter 'pretrained' is deprecated since 0.13 and may be removed in the future, please use 'weights' instead.
+  warnings.warn(
+/home/ec2-user/fml_envs/domainbed/lib/python3.10/site-packages/torchvision/models/_utils.py:223: UserWarning: Arguments other than a weight enum or `None` for 'weights' are deprecated since 0.13 and may be removed in the future. The current behavior is equivalent to passing `weights=ResNet50_Weights.IMAGENET1K_V1`. You can also use `weights=ResNet50_Weights.DEFAULT` to get the most up-to-date weights.
+  warnings.warn(msg)
+model.safetensors:   0%|          | 0.00/102M [00:00<?, ?B/s]model.safetensors:   0%|          | 12.5k/102M [00:01<2:20:11, 12.2kB/s]model.safetensors:  35%|###4      | 35.5M/102M [00:01<00:02, 29.2MB/s]  model.safetensors:  44%|####4     | 45.4M/102M [00:01<00:01, 31.5MB/s]model.safetensors:  57%|#####6    | 58.3M/102M [00:02<00:01, 36.5MB/s]model.safetensors:  71%|#######   | 72.3M/102M [00:02<00:00, 41.5MB/s]model.safetensors:  76%|#######6  | 78.1M/102M [00:02<00:00, 36.6MB/s]model.safetensors: 100%|##########| 102M/102M [00:02<00:00, 54.9MB/s] model.safetensors: 100%|##########| 102M/102M [00:02<00:00, 36.4MB/s]
+env0_in_acc   env0_out_acc  env1_in_acc   env1_out_acc  env2_in_acc   env2_out_acc  env3_in_acc   env3_out_acc  epoch         loss          mem_gb        step          step_time    
+0.8546203649  0.8969780220  0.8740183246  0.8624904507  0.8571428571  0.8549962434  0.8504918033  0.8393267024  0.0000000000  0.6514766216  7.9322786331  0             0.5872559547 
+0.8781636257  0.9203296703  0.9041230366  0.8846447670  0.8999356499  0.8858001503  0.8990163934  0.8852333588  5.6503825780  0.2946640280  8.1394205093  300           0.0996510228 
+0.8634490877  0.8914835165  0.9473167539  0.8533231474  0.9449806950  0.8467317806  0.9639344262  0.8561591431  11.300765156  0.1883254119  8.1394205093  600           0.0988080335 
+0.8640376692  0.9024725275  0.9646596859  0.8380443086  0.9665379665  0.8467317806  0.9803278689  0.8469778118  16.951147734  0.1194392689  8.1394205093  900           0.0986915620 
+0.8705120659  0.9093406593  0.9698952880  0.8548510313  0.9710424710  0.8617580766  0.9891803279  0.8546289212  22.601530311  0.0802150893  8.1394205093  1200          0.0989245192 
+0.8428487345  0.8846153846  0.9702225131  0.8472116119  0.9736164736  0.8459804658  0.9895081967  0.8316755930  28.251912889  0.0645234505  8.1394205093  1500          0.0989262255 
+0.8640376692  0.8914835165  0.9777486911  0.8533231474  0.9787644788  0.8459804658  0.9944262295  0.8592195868  33.902295467  0.0587795793  8.1394205093  1800          0.0991654881 
+0.8528546204  0.8901098901  0.9764397906  0.8510313216  0.9781209781  0.8572501878  0.9940983607  0.8546289212  39.552678045  0.0497012920  8.1394205093  2100          0.0991953349 
+0.8716892290  0.9024725275  0.9774214660  0.8403361345  0.9797297297  0.8534936138  0.9957377049  0.8630451415  45.203060623  0.0488786571  8.1394205093  2400          0.0993381381 
+0.8634490877  0.9038461538  0.9797120419  0.8525592055  0.9816602317  0.8429752066  0.9963934426  0.8538638103  50.853443201  0.0427719384  8.1394205093  2700          0.0992512083 
+0.8675691583  0.9093406593  0.9803664921  0.8464476700  0.9826254826  0.8519909842  0.9963934426  0.8699311400  56.503825779  0.0374281506  8.1394205093  3000          0.0992748300 
+0.8722778105  0.9010989011  0.9806937173  0.8510313216  0.9774774775  0.8512396694  0.9954098361  0.8615149197  62.154208357  0.0326258835  8.1394205093  3300          0.0993650826 
+0.8640376692  0.8983516484  0.9833115183  0.8579067991  0.9816602317  0.8519909842  0.9944262295  0.8553940321  67.804590935  0.0377307384  8.1394205093  3600          0.0993914723 
+0.8622719247  0.9107142857  0.9784031414  0.8601986249  0.9787644788  0.8580015026  0.9950819672  0.8661055853  73.454973513  0.0375785793  8.1394205093  3900          0.0997876565 
+0.8634490877  0.9093406593  0.9820026178  0.8533231474  0.9848777349  0.8467317806  0.9957377049  0.8508033665  79.105356091  0.0354107200  8.1394205093  4200          0.0996603918 
+0.8587404356  0.8873626374  0.9836387435  0.8510313216  0.9823037323  0.8512396694  0.9957377049  0.8515684774  84.755738669  0.0368474847  8.1394205093  4500          0.0996945731 
+0.8681577398  0.9052197802  0.9813481675  0.8441558442  0.9797297297  0.8549962434  0.9960655738  0.8576893650  90.406121247  0.0328552971  8.1394205093  4800          0.0995925164 
+0.8569746910  0.9010989011  0.9820026178  0.8418640183  0.9806949807  0.8392186326  0.9960655738  0.8492731446  94.173042966  0.0376392733  8.1394205093  5000          0.0997599101 
+Running: python -m domainbed.scripts.train --data_dir=../data/ --algorithm ERM --dataset OfficeHome --test_env 0 --holdout_fraction 0.3 --output_dir ./results_tmp --steps 5001
+Saved results.jsonl to ./model_checkpoint/ for test reuse
+
+Val (held-out domain env0/Art out_split 30%): 0.9011
+avg_acc_mean = 0.901099
+
+Saved results to ./results_tmp/val_info.json
+
+real	10m55.362s
+user	61m4.737s
+sys	6m37.332s

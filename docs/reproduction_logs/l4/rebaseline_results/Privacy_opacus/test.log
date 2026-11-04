@@ -1,0 +1,12 @@
+Visible pool (train): 39500, Hidden test: 10500
+Loading checkpoint from model_checkpoint/model.pt (skipping training)
+
+=== TEST Results ===
+  Accuracy: 0.585429
+  Epsilon: 7.9996
+
+Saved results to results_tmp/test_info.json
+
+real	0m6.606s
+user	0m12.254s
+sys	0m1.749s

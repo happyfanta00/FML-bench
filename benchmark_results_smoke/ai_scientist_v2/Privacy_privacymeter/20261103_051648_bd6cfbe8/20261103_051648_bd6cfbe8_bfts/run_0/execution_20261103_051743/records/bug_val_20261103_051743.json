@@ -1,0 +1,9 @@
+{
+  "run_id": 0,
+  "phase": "val",
+  "timestamp": "20261103_051743",
+  "error": {
+    "returncode": 1,
+    "stderr": "[Errno 2] No such file or directory: 'conda'"
+  }
+}

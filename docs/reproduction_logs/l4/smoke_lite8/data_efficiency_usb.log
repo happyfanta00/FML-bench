@@ -1,0 +1,86 @@
+Override: agent.ai_scientist_v2.max_steps = 3
+Override: agent.ai_scientist_v2.execute_timeout = 7200
+Override: agent.model = us.anthropic.claude-opus-5-5
+Override: agent.provider = AnthropicBedrock
+Initializing ai_scientist_v2 agent...
+Using Amazon Bedrock (us-west-2) with model us.anthropic.claude-opus-5-5.
+
+=== Running ai_scientist_v2 on Data_Efficiency_usb ===
+Model: us.anthropic.claude-opus-5-5 (Provider: AnthropicBedrock)
+Preparing workspace: Copying workspace from workspace/Data_Efficiency_usb to workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8
+Created workspace copy: workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8
+Starting benchmark: Data_Efficiency_usb
+Available datasets in results: ['cifar100_ssl']
+Available metrics in results: ['test_acc_mean']
+Filtering datasets to: ['cifar100_ssl']
+Filtering metrics to: ['test_acc_mean']
+Filtered results keys: ['cifar100_ssl']
+Updating files:  87% (1142/1311)Updating files:  88% (1154/1311)Updating files:  89% (1167/1311)Updating files:  90% (1180/1311)Updating files:  91% (1194/1311)Updating files:  92% (1207/1311)Updating files:  93% (1220/1311)Updating files:  94% (1233/1311)Updating files:  95% (1246/1311)Updating files:  96% (1259/1311)Updating files:  97% (1272/1311)Updating files:  98% (1285/1311)Updating files:  99% (1298/1311)Updating files: 100% (1311/1311)Updating files: 100% (1311/1311), done.
+HEAD is now at 9c9e33a add cifar-100 dataset for agent benchmark
+Git repository reset to clean state
+AI-Scientist-v2 workspace: benchmark_results_smoke/ai_scientist_v2/Data_Efficiency_usb/20261103_092558_60364ea1/20261103_092558_60364ea1_bfts
+Using Amazon Bedrock (us-west-2) with model us.anthropic.claude-opus-5-5.
+[AI-Scientist-v2] seed_ideas.json not found at ml_tasks/Data_Efficiency_usb/theaiscientist/seed_ideas.json, falling back to pure BFTS without idea constraints (num_drafts=3)
+
+============================================================
+Stage 3/4: creative_research (budget=1, mode=BFTS(drafts=1))
+============================================================
+Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning
+Command finished in 1317.9 s (returncode 0)
+Stage 3 (creative_research): 1 steps, best=0.10866666666666666
+
+============================================================
+Stage 4/4: ablation_refinement (budget=2, mode=force-improve)
+============================================================
+Cleaning existing results_tmp/ directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning/results_tmp
+Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning
+Command finished in 1327.3 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning/results_tmp
+Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning
+Command finished in 1784.1 s (returncode 0)
+Stage 4 (ablation_refinement): 2 steps, best=0.10333333333333333
+HEAD is now at 9c9e33a add cifar-100 dataset for agent benchmark
+Removing model_checkpoint/
+Removing results_tmp/
+Removing train_eval_baseline.py
+Git repository reset to clean state
+Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning
+Command finished in 1355.2 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning/results_tmp
+Running test_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
+Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
+Current working directory: /home/ec2-user/FML-bench/workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8/Semi-supervised-learning
+Command finished in 6.3 s (returncode 0)
+HEAD is now at 9c9e33a add cifar-100 dataset for agent benchmark
+Removing model_checkpoint/
+Removing results_tmp/
+Removing train_eval_baseline.py
+Git repository reset to clean state
+Benchmark completed: Data_Efficiency_usb
+
+Summary saved to: benchmark_results_smoke/ai_scientist_v2/Data_Efficiency_usb/20261103_092558_60364ea1/summary.json
+Configuration saved to: benchmark_results_smoke/ai_scientist_v2/Data_Efficiency_usb/20261103_092558_60364ea1/config_used.yaml
+
+============================================================
+Results Summary
+============================================================
+Best Val Metric: 0.10866666666666666 (step 1, idea: ## Introduction
+You are an AI researcher who is looking to publish a paper that will contribute significantly to the field. Your task is to implement a solid baseline based on your research idea provi)
+Test Metric: 0.10657142857142857
+Total Steps: 3
+Total Ideas: 1
+
+Token Usage: 36,187 total (prompt: 16,172, completion: 20,015)
+============================================================
+
+Done!
+Cleaning up copied workspace...
+Cleaned up workspace copy: workspace/Data_Efficiency_usb__smoke_20261103_092558_fa4ef5c8

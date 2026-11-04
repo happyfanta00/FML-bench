@@ -1,0 +1,7 @@
+task=Privacy_opacus env=opacus gpu='0'
+copy=workspace/Privacy_opacus__rebaseline_20261103_163500
+repo HEAD: 03ea27b add cifar-10 dataset for agent benchmark; changes: 0
+== VAL start Tue Nov  3 16:35:02 UTC 2026
+== VAL end Tue Nov  3 16:36:51 UTC 2026 rc=0
+== TEST start Tue Nov  3 16:36:51 UTC 2026
+== TEST end Tue Nov  3 16:36:57 UTC 2026 rc=0

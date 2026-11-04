@@ -1,0 +1,52 @@
+2026-11-03 09:25:55 started generalization_officehome gpu=[0] pid=435777
+2026-11-03 09:25:55 started robustness_openood gpu=[1] pid=435779
+2026-11-03 09:25:55 started generalization gpu=[1] pid=435783
+2026-11-03 09:25:55 started privacy_privacymeter gpu=[2] pid=435788
+2026-11-03 09:25:55 started privacy_opacus gpu=[2] pid=435794
+2026-11-03 09:25:55 started continual_learning_pycil gpu=[3] pid=435800
+2026-11-03 09:25:55 started data_efficiency_usb gpu=[3] pid=435808
+2026-11-03 09:25:55 started robustness_and_reliability_art gpu=[] pid=435817
+2026-11-03 12:49:43 generalization_officehome exited rc=0
+2026-11-03 12:49:43 robustness_openood exited rc=0
+2026-11-03 12:49:43 generalization exited rc=0
+2026-11-03 12:49:43 privacy_privacymeter exited rc=0
+2026-11-03 12:49:43 privacy_opacus exited rc=0
+2026-11-03 12:49:43 continual_learning_pycil exited rc=0
+2026-11-03 12:49:43 data_efficiency_usb exited rc=0
+2026-11-03 12:49:43 robustness_and_reliability_art exited rc=0
+
+== results
+generalization_officehome: 5 commands, 0 buggy; Best Val Metric: 0.9107142857142857 (ste Test Metric: 0.874043555032372 
+robustness_openood: 5 commands, 0 buggy; Best Val Metric: 0.915161155246607 (step Test Metric: 0.9863763142857144 
+generalization: 5 commands, 0 buggy; Best Val Metric: 0.7279611373053293 (ste Test Metric: 0.7398677604995715 
+privacy_privacymeter: 5 commands, 0 buggy; Best Val Metric: 0.05740000000000001 (st Test Metric: 0.06409999999999993 
+privacy_opacus: 5 commands, 0 buggy; Best Val Metric: 0.6293670886075949 (ste Test Metric: 0.618 
+continual_learning_pycil: 5 commands, 0 buggy; Best Val Metric: 0.6103999999999999 (ste Test Metric: 0.6113000000000001 
+data_efficiency_usb: 5 commands, 0 buggy; Best Val Metric: 0.10866666666666666 (st Test Metric: 0.10657142857142857 
+robustness_and_reliability_art: 5 commands, 0 buggy; Best Val Metric: 0.9669828701489178 (ste Test Metric: 0.9661774092884613 
+
+== resources
+task, gpu, peak GPU MiB
+Continual_Learning_pycil, 3, 678
+Data_Efficiency_usb, 3, 1420
+Generalization_domainbed, 1, 744
+Generalization_domainbed_officehome, 0, 10120
+Privacy_opacus, 2, 12164
+Privacy_privacymeter, 2, 4922
+Robustness_openood, 1, 1540
+
+task, peak host PSS MiB
+Continual_Learning_pycil, 1904
+Data_Efficiency_usb, 1417
+Generalization_domainbed, 2861
+Generalization_domainbed_officehome, 7682
+Privacy_opacus, 2211
+Privacy_privacymeter, 2940
+Robustness_and_Reliability_art, 2952
+Robustness_openood, 2308
+
+gpu, peak card MiB (all processes)
+0, 10128
+1, 2100
+2, 13624
+3, 2112

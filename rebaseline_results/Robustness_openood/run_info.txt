@@ -1,0 +1,7 @@
+task=Robustness_openood env=openood gpu='1'
+copy=workspace/Robustness_openood__rebaseline_20261102_122016
+repo HEAD: a32f08b add cifar-10/100 and svhn datasets for agent benchmark; changes: 0
+== VAL start Mon Nov  2 12:20:56 UTC 2026
+== VAL end Mon Nov  2 12:31:21 UTC 2026 rc=0
+== TEST start Mon Nov  2 12:31:21 UTC 2026
+== TEST end Mon Nov  2 12:31:29 UTC 2026 rc=0

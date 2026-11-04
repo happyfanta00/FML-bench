@@ -1,0 +1,11 @@
+Labeled: 200, Unlabeled: 49800, Val: 3000, Test: 7000
+Loading checkpoint from model_checkpoint/model.pt (skipping training)
+
+=== TEST Results ===
+  Accuracy: 0.086143
+
+Saved results to results_tmp/test_info.json
+
+real	0m4.881s
+user	0m9.377s
+sys	0m1.165s

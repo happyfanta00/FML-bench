@@ -1,0 +1,554 @@
+============================================================
+CodeEditor Call #2
+Timestamp: 20261103_052855
+Model: us.anthropic.claude-opus-5-5
+============================================================
+
+--- PROMPT ---
+## Task Context
+You are an ambitious AI PhD student focused on improving class-incremental continual learning using the PyCIL framework.
+You are working with PyCIL's iCaRL (Incremental Classifier and Representation Learning) method as the baseline on CIFAR-100 in a class-incremental setting. The task starts with 50 base classes, then incrementally adds 10 new classes per stage (5 stages total, 100 classes at the end). The model must learn new classes without forgetting old ones, using a fixed memory budget of 2000 exemplars. The baseline uses ResNet-32 with knowledge distillation and nearest-mean-of-exemplars (NME) classification.
+
+Your goal is to improve the average incremental accuracy (averaged across all stages). You may modify the training procedure (epochs, learning rate, augmentation), the distillation strategy, the exemplar selection method, the classification method, or switch to a completely different continual learning algorithm available in PyCIL (e.g., DER, FOSTER, MEMO, EWC, LwF, Replay, etc.).
+
+You are evaluated on a validation set during development. Validation and test use different portions of the CIFAR-100 test set (30% val, 70% test), both evaluating the same trained model on the same class-incremental task sequence. Use the validation results to guide your research, but be mindful that overfitting to the validation set will not improve test performance.
+
+The model class must extend BaseLearner and implement incremental_train(data_manager), eval_task(), and after_task() methods. Do not change these method signatures.
+
+## Optimization Target
+Metric: avg_incremental_acc_mean (higher is better)
+
+## Target files (return COMPLETE modified content):
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Continual_Learning_pycil__smoke_20261103_051637_b00cf47a/PyCIL/models/icarl.py
+```python
+import logging
+import math
+import numpy as np
+from tqdm import tqdm
+import torch
+from torch import nn
+from torch import optim
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+from models.base import BaseLearner
+from utils.inc_net import IncrementalNet
+from utils.inc_net import CosineIncrementalNet
+from utils.toolkit import target2onehot, tensor2numpy
+
+EPSILON = 1e-8
+
+init_epoch = 200
+init_lr = 0.1
+init_milestones = [60, 120, 170]
+init_lr_decay = 0.1
+init_weight_decay = 0.0005
+
+
+epochs = 170
+lrate = 0.1
+milestones = [80, 120]
+lrate_decay = 0.1
+batch_size = 128
+weight_decay = 2e-4
+num_workers = 8
+T = 2
+
+# Feature-level distillation base weight (LUCIR-style less-forget constraint)
+feat_kd_base = 1.0
+
+
+class iCaRL(BaseLearner):
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = IncrementalNet(args, False)
+
+    def after_task(self):
+        self._old_network = self._network.copy().freeze()
+        self._known_classes = self._total_classes
+        logging.info("Exemplar size: {}".format(self.exemplar_size))
+
+    def incremental_train(self, data_manager):
+        self._cur_task += 1
+        self._total_classes = self._known_classes + data_manager.get_task_size(
+            self._cur_task
+        )
+        self._network.update_fc(self._total_classes)
+        logging.info(
+            "Learning on {}-{}".format(self._known_classes, self._total_classes)
+        )
+
+        train_dataset = data_manager.get_dataset(
+            np.arange(self._known_classes, self._total_classes),
+            source="train",
+            mode="train",
+            appendent=self._get_memory(),
+        )
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+        )
+        test_dataset = data_manager.get_dataset(
+            np.arange(0, self._total_classes), source="test", mode="test"
+        )
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+        )
+
+        if len(self._multiple_gpus) > 1:
+            self._network = nn.DataParallel(self._network, self._multiple_gpus)
+        self._train(self.train_loader, self.test_loader)
+        if self._cur_task > 0:
+            self._weight_align(self._total_classes - self._known_classes)
+        self.build_rehearsal_memory(data_manager, self.samples_per_class)
+        if len(self._multiple_gpus) > 1:
+            self._network = self._network.module
+
+    def _weight_align(self, increment):
+        net = (
+            self._network.module
+            if isinstance(self._network, nn.DataParallel)
+            else self._network
+        )
+        try:
+            with torch.no_grad():
+                weights = net.fc.weight.data
+                newnorm = torch.norm(weights[-increment:, :], p=2, dim=1)
+                oldnorm = torch.norm(weights[:-increment, :], p=2, dim=1)
+                gamma = torch.mean(oldnorm) / (torch.mean(newnorm) + EPSILON)
+                net.fc.weight.data[-increment:, :] *= gamma
+            logging.info("Weight aligning, gamma = {:.4f}".format(gamma.item()))
+        except Exception as e:
+            logging.info("Weight aligning skipped: {}".format(e))
+
+    def _train(self, train_loader, test_loader):
+        self._network.to(self._device)
+        if self._old_network is not None:
+            self._old_network.to(self._device)
+
+        if self._cur_task == 0:
+            optimizer = optim.SGD(
+                self._network.parameters(),
+                momentum=0.9,
+                lr=init_lr,
+                weight_decay=init_weight_decay,
+            )
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                optimizer=optimizer, milestones=init_milestones, gamma=init_lr_decay
+            )
+            self._init_train(train_loader, test_loader, optimizer, scheduler)
+        else:
+            optimizer = optim.SGD(
+                self._network.parameters(),
+                lr=lrate,
+                momentum=0.9,
+                weight_decay=weight_decay,
+            )  # 1e-5
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                optimizer=optimizer, milestones=milestones, gamma=lrate_decay
+            )
+            self._update_representation(train_loader, test_loader, optimizer, scheduler)
+
+    def _init_train(self, train_loader, test_loader, optimizer, scheduler):
+        prog_bar = tqdm(range(init_epoch))
+        for _, epoch in enumerate(prog_bar):
+            self._network.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(self._device), targets.to(self._device)
+                logits = self._network(inputs)["logits"]
+
+                loss = F.cross_entropy(logits, targets)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(logits, dim=1)
+                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                total += len(targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+
+            if epoch % 5 == 0:
+                test_acc = self._compute_accuracy(self._network, test_loader)
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    init_epoch,
+                    losses / len(train_loader),
+                    train_acc,
+                    test_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    init_epoch,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+
+            prog_bar.set_description(info)
+
+        logging.info(info)
+
+    def _update_representation(self, train_loader, test_loader, optimizer, scheduler):
+        new_classes = max(self._total_classes - self._known_classes, 1)
+        lambda_feat = feat_kd_base * math.sqrt(self._known_classes / new_classes)
+        prog_bar = tqdm(range(epochs))
+        for _, epoch in enumerate(prog_bar):
+            self._network.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(self._device), targets.to(self._device)
+                outputs = self._network(inputs)
+                logits = outputs["logits"]
+                features = outputs["features"]
+
+                with torch.no_grad():
+                    old_out = self._old_network(inputs)
+                    old_logits = old_out["logits"]
+                    old_features = old_out["features"]
+
+                loss_clf = F.cross_entropy(logits, targets)
+                loss_kd = _KD_loss(
+                    logits[:, : self._known_classes],
+                    old_logits,
+                    T,
+                )
+                loss_feat = (
+                    1.0
+                    - F.cosine_similarity(features, old_features.detach(), dim=1)
+                ).mean()
+
+                loss = loss_clf + loss_kd + lambda_feat * loss_feat
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(logits, dim=1)
+                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                total += len(targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+            if epoch % 5 == 0:
+                test_acc = self._compute_accuracy(self._network, test_loader)
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                    test_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+            prog_bar.set_description(info)
+        logging.info(info)
+
+
+def _KD_loss(pred, soft, T):
+    pred = torch.log_softmax(pred / T, dim=1)
+    soft = torch.softmax(soft / T, dim=1)
+    return -1 * torch.mul(soft, pred).sum() / pred.shape[0]
+```
+
+## Instruction:
+## Introduction
+You are an experienced AI researcher. You are provided with a previously developed implementation. Your task is to improve it based on the current experimental stage.
+
+## Previous results
+Previous result: avg_incremental_acc_mean = 0.5997833333333333 (higher is better)
+Analysis: **No bug is evident.** The run finished successfully and produced a sensible score.
+
+**Result:** The primary metric, avg_incremental_acc_mean, is **0.5998**. The reference baseline is **0.5925**, so this is a gain of about **+0.7 points**.
+
+**Why I see no bug:** The score is in the expected range for iCaRL on CIFAR-100 with 50 base classes, 10 classes per step and 2000 exemplars. It sits slightly above the reference, which suggests the setup is correct:
+- The task split is right.
+- NME evaluatio
+
+## Baseline for comparison
+Baseline: avg_incremental_acc_mean = 0.5925333333333334 (higher is better)
+
+## Stage Guidance
+Conduct systematic tests of your best solution's components. Identify which changes contribute most to performance. Refine the solution by removing unnecessary complexity.
+
+## Implementation guidelines
+- Write complete, self-contained code. Do not skip sections or leave placeholders.
+- Do not add additional command line arguments.
+- Ensure the code runs without errors.
+- Do not modify files other than the target files shown above.
+
+## Output Format
+
+
+For small target files, return the COMPLETE modified file using this format:
+### FILE: <filepath>
+```python
+<complete file content>
+```
+
+Important:
+- Use the exact file paths shown above.
+- Ensure all code is syntactically valid Python.
+- Do not add explanations outside the specified format.
+
+--- RESPONSE ---
+The main contributors are kept: the cosine feature distillation, with weight scaled by √(old/new), and post-hoc weight aligning. Two refinements were made, and neither has been run yet.
+
+- **Learning-rate schedule:** incremental stages now use cosine annealing instead of MultiStepLR. This change is untested and has no ablation behind it. I expect a small gain and a smoother end-of-stage optimum, but that is not shown.
+- **Simpler weight aligning:** `_weight_align` no longer has the `try/except`. Any error there will now stop the run instead of being silently skipped.
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Continual_Learning_pycil__smoke_20261103_051637_b00cf47a/PyCIL/models/icarl.py
+```python
+import logging
+import math
+import numpy as np
+from tqdm import tqdm
+import torch
+from torch import nn
+from torch import optim
+from torch.nn import functional as F
+from torch.utils.data import DataLoader
+from models.base import BaseLearner
+from utils.inc_net import IncrementalNet
+from utils.inc_net import CosineIncrementalNet
+from utils.toolkit import target2onehot, tensor2numpy
+
+EPSILON = 1e-8
+
+init_epoch = 200
+init_lr = 0.1
+init_milestones = [60, 120, 170]
+init_lr_decay = 0.1
+init_weight_decay = 0.0005
+
+
+epochs = 170
+lrate = 0.1
+milestones = [80, 120]
+lrate_decay = 0.1
+batch_size = 128
+weight_decay = 2e-4
+num_workers = 8
+T = 2
+
+# Feature-level distillation base weight (LUCIR-style less-forget constraint)
+feat_kd_base = 1.0
+
+
+class iCaRL(BaseLearner):
+    def __init__(self, args):
+        super().__init__(args)
+        self._network = IncrementalNet(args, False)
+
+    def after_task(self):
+        self._old_network = self._network.copy().freeze()
+        self._known_classes = self._total_classes
+        logging.info("Exemplar size: {}".format(self.exemplar_size))
+
+    def incremental_train(self, data_manager):
+        self._cur_task += 1
+        self._total_classes = self._known_classes + data_manager.get_task_size(
+            self._cur_task
+        )
+        self._network.update_fc(self._total_classes)
+        logging.info(
+            "Learning on {}-{}".format(self._known_classes, self._total_classes)
+        )
+
+        train_dataset = data_manager.get_dataset(
+            np.arange(self._known_classes, self._total_classes),
+            source="train",
+            mode="train",
+            appendent=self._get_memory(),
+        )
+        self.train_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+        )
+        test_dataset = data_manager.get_dataset(
+            np.arange(0, self._total_classes), source="test", mode="test"
+        )
+        self.test_loader = DataLoader(
+            test_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+        )
+
+        if len(self._multiple_gpus) > 1:
+            self._network = nn.DataParallel(self._network, self._multiple_gpus)
+        self._train(self.train_loader, self.test_loader)
+        if self._cur_task > 0:
+            self._weight_align(self._total_classes - self._known_classes)
+        self.build_rehearsal_memory(data_manager, self.samples_per_class)
+        if len(self._multiple_gpus) > 1:
+            self._network = self._network.module
+
+    def _weight_align(self, increment):
+        net = (
+            self._network.module
+            if isinstance(self._network, nn.DataParallel)
+            else self._network
+        )
+        with torch.no_grad():
+            weights = net.fc.weight.data
+            newnorm = torch.norm(weights[-increment:, :], p=2, dim=1)
+            oldnorm = torch.norm(weights[:-increment, :], p=2, dim=1)
+            gamma = torch.mean(oldnorm) / (torch.mean(newnorm) + EPSILON)
+            net.fc.weight.data[-increment:, :] *= gamma
+        logging.info("Weight aligning, gamma = {:.4f}".format(gamma.item()))
+
+    def _train(self, train_loader, test_loader):
+        self._network.to(self._device)
+        if self._old_network is not None:
+            self._old_network.to(self._device)
+
+        if self._cur_task == 0:
+            optimizer = optim.SGD(
+                self._network.parameters(),
+                momentum=0.9,
+                lr=init_lr,
+                weight_decay=init_weight_decay,
+            )
+            scheduler = optim.lr_scheduler.MultiStepLR(
+                optimizer=optimizer, milestones=init_milestones, gamma=init_lr_decay
+            )
+            self._init_train(train_loader, test_loader, optimizer, scheduler)
+        else:
+            optimizer = optim.SGD(
+                self._network.parameters(),
+                lr=lrate,
+                momentum=0.9,
+                weight_decay=weight_decay,
+            )
+            scheduler = optim.lr_scheduler.CosineAnnealingLR(
+                optimizer=optimizer, T_max=epochs
+            )
+            self._update_representation(train_loader, test_loader, optimizer, scheduler)
+
+    def _init_train(self, train_loader, test_loader, optimizer, scheduler):
+        prog_bar = tqdm(range(init_epoch))
+        for _, epoch in enumerate(prog_bar):
+            self._network.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(self._device), targets.to(self._device)
+                logits = self._network(inputs)["logits"]
+
+                loss = F.cross_entropy(logits, targets)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(logits, dim=1)
+                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                total += len(targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+
+            if epoch % 5 == 0:
+                test_acc = self._compute_accuracy(self._network, test_loader)
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    init_epoch,
+                    losses / len(train_loader),
+                    train_acc,
+                    test_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    init_epoch,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+
+            prog_bar.set_description(info)
+
+        logging.info(info)
+
+    def _update_representation(self, train_loader, test_loader, optimizer, scheduler):
+        new_classes = max(self._total_classes - self._known_classes, 1)
+        lambda_feat = feat_kd_base * math.sqrt(self._known_classes / new_classes)
+        prog_bar = tqdm(range(epochs))
+        for _, epoch in enumerate(prog_bar):
+            self._network.train()
+            losses = 0.0
+            correct, total = 0, 0
+            for i, (_, inputs, targets) in enumerate(train_loader):
+                inputs, targets = inputs.to(self._device), targets.to(self._device)
+                outputs = self._network(inputs)
+                logits = outputs["logits"]
+                features = outputs["features"]
+
+                with torch.no_grad():
+                    old_out = self._old_network(inputs)
+                    old_logits = old_out["logits"]
+                    old_features = old_out["features"]
+
+                loss_clf = F.cross_entropy(logits, targets)
+                loss_kd = _KD_loss(
+                    logits[:, : self._known_classes],
+                    old_logits,
+                    T,
+                )
+                loss_feat = (
+                    1.0
+                    - F.cosine_similarity(features, old_features.detach(), dim=1)
+                ).mean()
+
+                loss = loss_clf + loss_kd + lambda_feat * loss_feat
+
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                losses += loss.item()
+
+                _, preds = torch.max(logits, dim=1)
+                correct += preds.eq(targets.expand_as(preds)).cpu().sum()
+                total += len(targets)
+
+            scheduler.step()
+            train_acc = np.around(tensor2numpy(correct) * 100 / total, decimals=2)
+            if epoch % 5 == 0:
+                test_acc = self._compute_accuracy(self._network, test_loader)
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}, Test_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                    test_acc,
+                )
+            else:
+                info = "Task {}, Epoch {}/{} => Loss {:.3f}, Train_accy {:.2f}".format(
+                    self._cur_task,
+                    epoch + 1,
+                    epochs,
+                    losses / len(train_loader),
+                    train_acc,
+                )
+            prog_bar.set_description(info)
+        logging.info(info)
+
+
+def _KD_loss(pred, soft, T):
+    pred = torch.log_softmax(pred / T, dim=1)
+    soft = torch.softmax(soft / T, dim=1)
+    return -1 * torch.mul(soft, pred).sum() / pred.shape[0]
+```

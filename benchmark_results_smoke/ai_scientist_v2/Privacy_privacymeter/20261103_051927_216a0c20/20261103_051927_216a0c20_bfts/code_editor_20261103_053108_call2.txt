@@ -1,0 +1,771 @@
+============================================================
+CodeEditor Call #2
+Timestamp: 20261103_053108
+Model: us.anthropic.claude-opus-5-5
+============================================================
+
+--- PROMPT ---
+## Task Context
+You are an ambitious AI PhD student focused on improving model privacy and security against membership inference attacks.
+You are working with PrivacyMeter’s MIA (for information leakage through training points) and Robust MIA (RMIA, which refines the Likelihood Ratio Test with a tighter null hypothesis and leverages reference models and population data) to evaluate and reduce the model’s privacy risk. Your goal is to drive the auditor’s AUC toward 0.5 and keep TPR@0.1%FPR and TPR@0.0%FPR near zero while preserving task accuracy. Focus only on defense-side strategies rather than modifying the attack algorithms. Important constraints: your solution must keep TPR@0.1%FPR and TPR@0.0%FPR near zero, and maintain task accuracy within 1% of the baseline. If these constraints are violated, your privacy improvements will not be counted.
+
+You are evaluated on a validation set during development. Your final performance will be measured on a separate held-out test set that you do not have access to. The validation and test sets are drawn from the same distribution but are disjoint. Use the validation results to guide your research, but be mindful that overfitting to the validation set will not improve test performance.
+
+## Optimization Target
+Metric: AUC_gap_mean (lower is better)
+
+## Target files (return COMPLETE modified content):
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Privacy_privacymeter__smoke_20261103_051918_8de90a08/ml_privacy_meter/trainers/default_trainer.py
+```python
+"""This file contains functions for training and testing the model."""
+
+import pdb
+import time
+from typing import Tuple, Dict
+
+import numpy as np
+import torch
+from torch import nn
+from torch.optim import lr_scheduler
+
+
+def lr_update(step: int, total_epoch: int, train_size: int, initial_lr: float) -> float:
+    """
+    Updates learning rate using cosine decay schedule,
+    from https://github.com/tensorflow/privacy/blob/4e1fc252e4c64132ad6fcd838e93f071f38dedd7/research/mi_lira_2021/train.py#L58
+
+    Args:
+        step (int): Current step number.
+        total_epoch (int): Total number of epochs.
+        train_size (int): Size of the training dataset.
+        initial_lr (float): Initial learning rate.
+
+    Returns:
+        float: Updated learning rate.
+    """
+    progress = step / (total_epoch * train_size)
+    lr = initial_lr * np.cos(progress * (7 * np.pi) / (2 * 8))
+    lr *= np.clip(progress * 100, 0, 1)
+    return lr
+
+
+def train(
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    configs: Dict,
+    test_loader: torch.utils.data.DataLoader = None,
+) -> torch.nn.Module:
+    """
+    Trains the model using the provided training data.
+
+    Args:
+        model (torch.nn.Module): Model to train.
+        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
+        configs (dict): Configuration dictionary for training.
+        test_loader (torch.utils.data.DataLoader, optional): DataLoader for test data. Defaults to None.
+
+    Returns:
+        torch.nn.Module: Trained model.
+    """
+    # Ensure the model is moved to the correct device (e.g., cuda:1 or cpu)
+    device = configs.get("device", "cpu")
+    model = model.to(device)  # Make sure the model is on the correct device
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = get_optimizer(model, configs)
+
+    epochs = configs.get("epochs", 1)
+    scheduler = lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: lr_update(
+            step * 256, epochs, len(train_loader) * 256, 0.1
+        ),
+    )
+
+    for epoch_idx in range(epochs):
+        start_time = time.time()
+        total_loss, correct_predictions = 0, 0
+
+        # Set model to training mode
+        model.train()
+
+        for data, target in train_loader:
+            # Ensure that both data and target are moved to the same device as the model
+            data, target = (
+                data.to(device, non_blocking=True),
+                target.to(device, non_blocking=True).long(),
+            )
+
+            optimizer.zero_grad(set_to_none=True)
+
+            output = model(data)
+            loss = criterion(output, target)
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+        train_loss = total_loss / len(train_loader)
+        train_acc = correct_predictions / len(train_loader.dataset)
+
+        print(
+            f"Epoch [{epoch_idx + 1}/{epochs}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f}"
+        )
+
+        if test_loader:
+            test_loss, test_acc = inference(model, test_loader, device)
+            print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+
+        print(f"Epoch {epoch_idx + 1} took {time.time() - start_time:.2f} seconds")
+
+    # Move the model back to CPU if needed (this is optional)
+    model.to("cpu")
+    return model
+
+
+def dp_train(
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    configs: Dict,
+    test_loader: torch.utils.data.DataLoader = None,
+) -> torch.nn.Module:
+    """
+    Trains the model using the provided training data.
+
+    Args:
+        model (torch.nn.Module): Model to train.
+        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
+        configs (dict): Configuration dictionary for training.
+        test_loader (torch.utils.data.DataLoader, optional): DataLoader for test data. Defaults to None.
+
+    Returns:
+        torch.nn.Module: Trained model.
+    """
+    from opacus import PrivacyEngine
+    from opacus.validators import ModuleValidator
+
+    # Ensure the model is moved to the correct device (e.g., cuda:1 or cpu)
+    device = configs.get("device", "cpu")
+    model = model.to(device)  # Make sure the model is on the correct device
+    model = ModuleValidator.fix(model)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = get_optimizer(model, configs)
+
+    epochs = configs.get("epochs", 1)
+    scheduler = lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: lr_update(
+            step * 256, epochs, len(train_loader) * 256, 0.1
+        ),
+    )
+
+    privacy_engine = PrivacyEngine()
+    model, optimizer, train_loader = privacy_engine.make_private(
+        module=model,
+        optimizer=optimizer,
+        data_loader=train_loader,
+        noise_multiplier=0.5,
+        max_grad_norm=1.0,
+    )
+
+    for epoch_idx in range(epochs):
+        start_time = time.time()
+        total_loss, correct_predictions = 0, 0
+
+        # Set model to training mode
+        model.train()
+
+        for data, target in train_loader:
+            # Ensure that both data and target are moved to the same device as the model
+            data, target = (
+                data.to(device, non_blocking=True),
+                target.to(device, non_blocking=True).long(),
+            )
+
+            optimizer.zero_grad(set_to_none=True)
+
+            output = model(data)
+            loss = criterion(output, target)
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+        train_loss = total_loss / len(train_loader)
+        train_acc = correct_predictions / len(train_loader.dataset)
+
+        epsilon = privacy_engine.accountant.get_epsilon(delta=1e-5)
+
+        print(
+            f"Epoch [{epoch_idx + 1}/{epochs}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | DP guarantee: (ε = {epsilon:.2f}, δ = {1e-5})"
+        )
+
+        if test_loader:
+            test_loss, test_acc = inference(model, test_loader, device)
+            print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+
+        print(f"Epoch {epoch_idx + 1} took {time.time() - start_time:.2f} seconds")
+
+    # Move the model back to CPU if needed (this is optional)
+    model.to("cpu")
+    epsilon = privacy_engine.accountant.get_epsilon(delta=1e-5)
+    return model, epsilon
+
+
+def inference(
+    model: torch.nn.Module, loader: torch.utils.data.DataLoader, device: str
+) -> Tuple[float, float]:
+    """
+    Evaluates the model on the provided data.
+
+    Args:
+        model (torch.nn.Module): Model to evaluate.
+        loader (torch.utils.data.DataLoader): DataLoader for evaluation data.
+        device (str): Device to use for computation ('cpu' or 'cuda').
+
+    Returns:
+        Tuple[float, float]: Loss and accuracy on the evaluation data.
+    """
+    model.eval().to(device)  # Make sure the model is on the correct device
+    loss_fn = nn.CrossEntropyLoss()
+    total_loss, correct_predictions = 0, 0
+
+    with torch.no_grad():
+        for data, target in loader:
+            # Ensure data and target are moved to the same device as the model
+            data, target = data.to(device), target.to(device).long()
+
+            output = model(data)
+            loss = loss_fn(output, target)
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+    avg_loss = total_loss / len(loader)
+    accuracy = correct_predictions / len(loader.dataset)
+
+    return avg_loss, accuracy
+
+
+def get_optimizer(model: torch.nn.Module, configs: Dict) -> torch.optim.Optimizer:
+    """
+    Returns the optimizer based on the configuration.
+
+    Args:
+        model (torch.nn.Module): Model for which to create the optimizer.
+        configs (dict): Configuration dictionary.
+
+    Raises:
+        NotImplementedError: If the specified optimizer is not supported.
+
+    Returns:
+        torch.optim.Optimizer: Initialized optimizer.
+    """
+    optimizer_name = configs.get("optimizer", "SGD")
+    learning_rate = configs.get("learning_rate", 0.001)
+    weight_decay = configs.get("weight_decay", 0.0)
+    momentum = configs.get("momentum", 0.0)
+
+    print(
+        f"Using optimizer: {optimizer_name} | Learning Rate: {learning_rate} | Weight Decay: {weight_decay}"
+    )
+
+    if optimizer_name == "SGD":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            momentum=momentum,
+        )
+    elif optimizer_name == "Adam":
+        return torch.optim.Adam(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+    elif optimizer_name == "AdamW":
+        return torch.optim.AdamW(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+    else:
+        raise NotImplementedError(
+            f"Optimizer '{optimizer_name}' is not implemented. Choose 'SGD', 'Adam', or 'AdamW'."
+        )
+
+```
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Privacy_privacymeter__smoke_20261103_051918_8de90a08/ml_privacy_meter/models/wide_resnet.py
+```python
+import functools
+from typing import Callable, List
+import torch
+import torch.nn as nn
+
+BN_MOM = 0.9
+BN_EPS = 1e-5
+"""
+Pytorch implementation of Wide Residual Networks based on Jax implementation of wideresnet: https://github.com/google/objax/blob/d0aefeeb573fb366f2ee547f6869f2ca1b7ef284/objax/zoo/wide_resnet.py
+
+Reference:
+https://arxiv.org/abs/1605.07146
+https://github.com/szagoruyko/wide-residual-networks
+"""
+
+
+class WRNBlock(nn.Module):
+    def __init__(
+        self,
+        nin: int,
+        nout: int,
+        stride: int = 1,
+        bn: Callable = functools.partial(nn.BatchNorm2d, momentum=BN_MOM, eps=BN_EPS),
+    ):
+        super(WRNBlock, self).__init__()
+        self.proj_conv = None
+
+        if nin != nout or stride > 1:
+            self.proj_conv = nn.Conv2d(
+                nin, nout, 1, stride=stride, padding=0, bias=False
+            )
+
+        self.norm_1 = bn(nin)
+        self.conv_1 = nn.Conv2d(nin, nout, 3, stride=stride, padding=1, bias=False)
+        self.norm_2 = bn(nout)
+        self.conv_2 = nn.Conv2d(nout, nout, 3, stride=1, padding=1, bias=False)
+
+    def forward(self, x):
+        o1 = torch.relu(self.norm_1(x))
+        y = self.conv_1(o1)
+        o2 = torch.relu(self.norm_2(y))
+        z = self.conv_2(o2)
+        return z + self.proj_conv(o1) if self.proj_conv else z + x
+
+
+class WideResNetGeneral(nn.Module):
+    def __init__(
+        self,
+        nin: int,
+        nclass: int,
+        blocks_per_group: List[int],
+        width: int,
+        bn: Callable = functools.partial(nn.BatchNorm2d, momentum=BN_MOM, eps=BN_EPS),
+    ):
+        super(WideResNetGeneral, self).__init__()
+        widths = [
+            int(v * width) for v in [16 * (2**i) for i in range(len(blocks_per_group))]
+        ]
+        n = 16
+        ops = [nn.Conv2d(nin, n, 3, padding=1, bias=False)]
+        for i, (block, width) in enumerate(zip(blocks_per_group, widths)):
+            stride = 2 if i > 0 else 1
+            ops.append(WRNBlock(n, width, stride, bn))
+            for b in range(1, block):
+                ops.append(WRNBlock(width, width, 1, bn))
+            n = width
+        ops += [
+            bn(n),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d(1),
+            nn.Flatten(),
+            nn.Linear(n, nclass),
+        ]
+        self.layers = nn.Sequential(*ops)
+
+    def forward(self, x):
+        return self.layers(x)
+
+
+class WideResNet(WideResNetGeneral):
+    def __init__(
+        self,
+        nin: int,
+        nclass: int,
+        depth: int = 28,
+        width: int = 2,
+        bn: Callable = functools.partial(nn.BatchNorm2d, momentum=BN_MOM, eps=BN_EPS),
+    ):
+        assert (depth - 4) % 6 == 0, "depth should be 6n+4"
+        n = (depth - 4) // 6
+        blocks_per_group = [n] * 3
+        super().__init__(nin, nclass, blocks_per_group, width, bn)
+
+```
+
+## Instruction:
+## Introduction
+You are an AI researcher who is looking to publish a paper that will contribute significantly to the field. Your task is to implement a solid baseline based on your research idea provided below, from data preparation to model training, as well as evaluation. Focus on getting a simple but working implementation first, before any sophisticated improvements. We will explore more advanced variations in later stages.
+
+## Baseline results
+Baseline: AUC_gap_mean = 0.32420000000000004 (lower is better)
+
+## Experiment design sketch guideline
+- This first experiment design should be relatively simple, without extensive hyper-parameter optimization.
+- Take the Memory section into consideration when proposing the design.
+- The solution sketch should be 6-10 sentences.
+- Don't suggest to do EDA.
+- Make sure to create synthetic data if needed.
+
+## Stage Guidance
+Conduct systematic tests of your best solution's components. Identify which changes contribute most to performance. Refine the solution by removing unnecessary complexity.
+
+## Implementation guidelines
+- Write complete, self-contained code. Do not skip sections or leave placeholders.
+- Do not add additional command line arguments.
+- Ensure the code runs without errors.
+- Do not modify files other than the target files shown above.
+
+## Output Format
+
+
+For small target files, return the COMPLETE modified file using this format:
+### FILE: <filepath>
+```python
+<complete file content>
+```
+
+Important:
+- Use the exact file paths shown above.
+- Ensure all code is syntactically valid Python.
+- Do not add explanations outside the specified format.
+
+--- RESPONSE ---
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Privacy_privacymeter__smoke_20261103_051918_8de90a08/ml_privacy_meter/trainers/default_trainer.py
+```python
+"""This file contains functions for training and testing the model."""
+
+import pdb
+import time
+from typing import Tuple, Dict
+
+import numpy as np
+import torch
+from torch import nn
+from torch.optim import lr_scheduler
+import torch.nn.functional as F
+
+
+# Defense hyper-parameters (privacy-oriented regularization)
+AUGMENT_IMAGES = True  # random crop (pad 4, reflect) + horizontal flip on GPU
+MIXUP_ALPHA = 0.3  # mixup Beta(alpha, alpha); 0 disables mixup
+
+
+def lr_update(step: int, total_epoch: int, train_size: int, initial_lr: float) -> float:
+    """
+    Updates learning rate using cosine decay schedule,
+    from https://github.com/tensorflow/privacy/blob/4e1fc252e4c64132ad6fcd838e93f071f38dedd7/research/mi_lira_2021/train.py#L58
+
+    Args:
+        step (int): Current step number.
+        total_epoch (int): Total number of epochs.
+        train_size (int): Size of the training dataset.
+        initial_lr (float): Initial learning rate.
+
+    Returns:
+        float: Updated learning rate.
+    """
+    progress = step / (total_epoch * train_size)
+    lr = initial_lr * np.cos(progress * (7 * np.pi) / (2 * 8))
+    lr *= np.clip(progress * 100, 0, 1)
+    return lr
+
+
+def _augment_batch(data: torch.Tensor) -> torch.Tensor:
+    """Random crop with reflect padding and random horizontal flip for image batches."""
+    if data.dim() != 4 or data.shape[-1] < 16 or data.shape[-2] < 16:
+        return data
+    n, c, h, w = data.shape
+    pad = 4
+    # Horizontal flip
+    flip_mask = torch.rand(n, device=data.device) < 0.5
+    data = torch.where(flip_mask.view(n, 1, 1, 1), data.flip(3), data)
+    # Random crop via padding and per-sample offsets
+    padded = F.pad(data, (pad, pad, pad, pad), mode="reflect")
+    off_x = torch.randint(0, 2 * pad + 1, (n,), device=data.device)
+    off_y = torch.randint(0, 2 * pad + 1, (n,), device=data.device)
+    ar_h = torch.arange(h, device=data.device)
+    ar_w = torch.arange(w, device=data.device)
+    rows = (off_y.view(n, 1) + ar_h.view(1, h))  # n x h
+    cols = (off_x.view(n, 1) + ar_w.view(1, w))  # n x w
+    idx_n = torch.arange(n, device=data.device).view(n, 1, 1)
+    out = padded.permute(0, 2, 3, 1)  # n x H x W x c
+    out = out[idx_n, rows.view(n, h, 1), cols.view(n, 1, w)]  # n x h x w x c
+    return out.permute(0, 3, 1, 2).contiguous()
+
+
+def _regularized_step(model, data, target, criterion):
+    """Forward pass with augmentation and mixup; returns (loss, output_on_inputs)."""
+    if AUGMENT_IMAGES:
+        data = _augment_batch(data)
+    if MIXUP_ALPHA > 0 and data.shape[0] > 1:
+        lam = float(np.random.beta(MIXUP_ALPHA, MIXUP_ALPHA))
+        perm = torch.randperm(data.shape[0], device=data.device)
+        mixed = lam * data + (1 - lam) * data[perm]
+        output = model(mixed)
+        loss = lam * criterion(output, target) + (1 - lam) * criterion(
+            output, target[perm]
+        )
+    else:
+        output = model(data)
+        loss = criterion(output, target)
+    return loss, output
+
+
+def train(
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    configs: Dict,
+    test_loader: torch.utils.data.DataLoader = None,
+) -> torch.nn.Module:
+    """
+    Trains the model using the provided training data.
+
+    Args:
+        model (torch.nn.Module): Model to train.
+        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
+        configs (dict): Configuration dictionary for training.
+        test_loader (torch.utils.data.DataLoader, optional): DataLoader for test data. Defaults to None.
+
+    Returns:
+        torch.nn.Module: Trained model.
+    """
+    # Ensure the model is moved to the correct device (e.g., cuda:1 or cpu)
+    device = configs.get("device", "cpu")
+    model = model.to(device)  # Make sure the model is on the correct device
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = get_optimizer(model, configs)
+
+    epochs = configs.get("epochs", 1)
+    scheduler = lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: lr_update(
+            step * 256, epochs, len(train_loader) * 256, 0.1
+        ),
+    )
+
+    for epoch_idx in range(epochs):
+        start_time = time.time()
+        total_loss, correct_predictions = 0, 0
+
+        # Set model to training mode
+        model.train()
+
+        for data, target in train_loader:
+            # Ensure that both data and target are moved to the same device as the model
+            data, target = (
+                data.to(device, non_blocking=True),
+                target.to(device, non_blocking=True).long(),
+            )
+
+            optimizer.zero_grad(set_to_none=True)
+
+            loss, output = _regularized_step(model, data, target, criterion)
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+        train_loss = total_loss / len(train_loader)
+        train_acc = correct_predictions / len(train_loader.dataset)
+
+        print(
+            f"Epoch [{epoch_idx + 1}/{epochs}] | Train Loss: {train_loss:.4f} | Train Acc (aug/mixup): {train_acc:.4f}"
+        )
+
+        if test_loader:
+            test_loss, test_acc = inference(model, test_loader, device)
+            print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+
+        print(f"Epoch {epoch_idx + 1} took {time.time() - start_time:.2f} seconds")
+
+    # Move the model back to CPU if needed (this is optional)
+    model.to("cpu")
+    return model
+
+
+def dp_train(
+    model: torch.nn.Module,
+    train_loader: torch.utils.data.DataLoader,
+    configs: Dict,
+    test_loader: torch.utils.data.DataLoader = None,
+) -> torch.nn.Module:
+    """
+    Trains the model using the provided training data.
+
+    Args:
+        model (torch.nn.Module): Model to train.
+        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
+        configs (dict): Configuration dictionary for training.
+        test_loader (torch.utils.data.DataLoader, optional): DataLoader for test data. Defaults to None.
+
+    Returns:
+        torch.nn.Module: Trained model.
+    """
+    from opacus import PrivacyEngine
+    from opacus.validators import ModuleValidator
+
+    # Ensure the model is moved to the correct device (e.g., cuda:1 or cpu)
+    device = configs.get("device", "cpu")
+    model = model.to(device)  # Make sure the model is on the correct device
+    model = ModuleValidator.fix(model)
+
+    criterion = nn.CrossEntropyLoss()
+    optimizer = get_optimizer(model, configs)
+
+    epochs = configs.get("epochs", 1)
+    scheduler = lr_scheduler.LambdaLR(
+        optimizer,
+        lr_lambda=lambda step: lr_update(
+            step * 256, epochs, len(train_loader) * 256, 0.1
+        ),
+    )
+
+    privacy_engine = PrivacyEngine()
+    model, optimizer, train_loader = privacy_engine.make_private(
+        module=model,
+        optimizer=optimizer,
+        data_loader=train_loader,
+        noise_multiplier=0.5,
+        max_grad_norm=1.0,
+    )
+
+    for epoch_idx in range(epochs):
+        start_time = time.time()
+        total_loss, correct_predictions = 0, 0
+
+        # Set model to training mode
+        model.train()
+
+        for data, target in train_loader:
+            # Ensure that both data and target are moved to the same device as the model
+            data, target = (
+                data.to(device, non_blocking=True),
+                target.to(device, non_blocking=True).long(),
+            )
+
+            optimizer.zero_grad(set_to_none=True)
+
+            output = model(data)
+            loss = criterion(output, target)
+
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+        train_loss = total_loss / len(train_loader)
+        train_acc = correct_predictions / len(train_loader.dataset)
+
+        epsilon = privacy_engine.accountant.get_epsilon(delta=1e-5)
+
+        print(
+            f"Epoch [{epoch_idx + 1}/{epochs}] | Train Loss: {train_loss:.4f} | Train Acc: {train_acc:.4f} | DP guarantee: (ε = {epsilon:.2f}, δ = {1e-5})"
+        )
+
+        if test_loader:
+            test_loss, test_acc = inference(model, test_loader, device)
+            print(f"Test Loss: {test_loss:.4f} | Test Acc: {test_acc:.4f}")
+
+        print(f"Epoch {epoch_idx + 1} took {time.time() - start_time:.2f} seconds")
+
+    # Move the model back to CPU if needed (this is optional)
+    model.to("cpu")
+    epsilon = privacy_engine.accountant.get_epsilon(delta=1e-5)
+    return model, epsilon
+
+
+def inference(
+    model: torch.nn.Module, loader: torch.utils.data.DataLoader, device: str
+) -> Tuple[float, float]:
+    """
+    Evaluates the model on the provided data.
+
+    Args:
+        model (torch.nn.Module): Model to evaluate.
+        loader (torch.utils.data.DataLoader): DataLoader for evaluation data.
+        device (str): Device to use for computation ('cpu' or 'cuda').
+
+    Returns:
+        Tuple[float, float]: Loss and accuracy on the evaluation data.
+    """
+    model.eval().to(device)  # Make sure the model is on the correct device
+    loss_fn = nn.CrossEntropyLoss()
+    total_loss, correct_predictions = 0, 0
+
+    with torch.no_grad():
+        for data, target in loader:
+            # Ensure data and target are moved to the same device as the model
+            data, target = data.to(device), target.to(device).long()
+
+            output = model(data)
+            loss = loss_fn(output, target)
+
+            total_loss += loss.item()
+            pred = output.argmax(dim=1)
+            correct_predictions += pred.eq(target).sum().item()
+
+    avg_loss = total_loss / len(loader)
+    accuracy = correct_predictions / len(loader.dataset)
+
+    return avg_loss, accuracy
+
+
+def get_optimizer(model: torch.nn.Module, configs: Dict) -> torch.optim.Optimizer:
+    """
+    Returns the optimizer based on the configuration.
+
+    Args:
+        model (torch.nn.Module): Model for which to create the optimizer.
+        configs (dict): Configuration dictionary.
+
+    Raises:
+        NotImplementedError: If the specified optimizer is not supported.
+
+    Returns:
+        torch.optim.Optimizer: Initialized optimizer.
+    """
+    optimizer_name = configs.get("optimizer", "SGD")
+    learning_rate = configs.get("learning_rate", 0.001)
+    weight_decay = configs.get("weight_decay", 0.0)
+    momentum = configs.get("momentum", 0.0)
+
+    print(
+        f"Using optimizer: {optimizer_name} | Learning Rate: {learning_rate} | Weight Decay: {weight_decay}"
+    )
+
+    if optimizer_name == "SGD":
+        return torch.optim.SGD(
+            model.parameters(),
+            lr=learning_rate,
+            weight_decay=weight_decay,
+            momentum=momentum,
+        )
+    elif optimizer_name == "Adam":
+        return torch.optim.Adam(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+    elif optimizer_name == "AdamW":
+        return torch.optim.AdamW(
+            model.parameters(), lr=learning_rate, weight_decay=weight_decay
+        )
+    else:
+        raise NotImplementedError(
+            f"Optimizer '{optimizer_name}' is not implemented. Choose 'SGD', 'Adam', or 'AdamW'."
+        )
+```

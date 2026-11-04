@@ -1,0 +1,10 @@
+Loaded results.jsonl from ./model_checkpoint/ (skipping training)
+
+Test (held-out domain env0/Art in_split 70%): 0.8599
+avg_acc_mean = 0.859918
+
+Saved results to ./results_tmp/test_info.json
+
+real	0m0.049s
+user	0m0.033s
+sys	0m0.016s

@@ -1,0 +1,28 @@
+agent:
+  ai_scientist_v2:
+    debug_prob: 0.5
+    execute_timeout: 7200
+    max_debug_depth: 3
+    max_stderr_output: 1500
+    max_steps: 3
+    num_ideas: 3
+    num_parallel: 4
+    num_reflections: 3
+    stage_budgets:
+    - 0.1
+    - 0.2
+    - 0.5
+    - 0.2
+  model: us.anthropic.claude-opus-5-5
+  provider: AnthropicBedrock
+  type: ai_scientist_v2
+benchmark:
+  name: Privacy_opacus
+metrics:
+  include_datasets:
+  - cifar10_dp
+  include_metrics:
+  - test_acc_mean
+  optimization_direction: null
+  per_metric_direction:
+    test_acc_mean: higher

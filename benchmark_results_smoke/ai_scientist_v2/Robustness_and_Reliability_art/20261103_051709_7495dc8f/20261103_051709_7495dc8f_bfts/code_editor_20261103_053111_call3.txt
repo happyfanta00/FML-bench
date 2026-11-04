@@ -1,0 +1,918 @@
+============================================================
+CodeEditor Call #3
+Timestamp: 20261103_053111
+Model: us.anthropic.claude-opus-5-5
+============================================================
+
+--- PROMPT ---
+## Task Context
+You are an ambitious AI PhD student focused on improving robust learning under data poisoning and privacy constraints.
+You are given the Adversarial Robustness Toolbox (ART) codebase with a focus on the dp_instahide defense. dp_instahide mixes inputs with public data and applies differential privacy noise to hinder inversion and poisoning. While designed for privacy-preserving training, its structure offers headroom to harden against both clean-label and trigger/backdoor poisons. Your goal is to improve defense performance against diverse poisoning attacks while maintaining high clean accuracy. You may tune dp_instahide, compose it with other defenses, or propose a new method if it outperforms baselines.
+
+You are evaluated on a validation set during development. Your final performance will be measured on a separate held-out test set that you do not have access to. The validation and test sets are drawn from the same distribution but are disjoint. Use the validation results to guide your research, but be mindful that overfitting to the validation set will not improve test performance.
+
+You may also modify split_config.json to control how visible data is split between training and validation. Fields:
+- val_ratio (default: 0.20): fraction of visible data reserved for validation. Lower values mean more training data but noisier validation metrics.
+- val_seed (default: 42): random seed for the train/val split.
+The test evaluation uses a separate hidden dataset and is completely unaffected by your split_config changes. If you do not modify split_config.json, the default split is used.
+
+## Optimization Target
+Metric: defense_score_mean (higher is better)
+
+## Target files (return COMPLETE modified content):
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_and_Reliability_art__smoke_20261103_051638_19b5dd3b/adversarial-robustness-toolbox/art/defences/trainer/dp_instahide_trainer.py
+```python
+# MIT License
+#
+# Copyright (C) The Adversarial Robustness Toolbox (ART) Authors 2022
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+# documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+# persons to whom the Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+# Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+# WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+"""
+This module implements DP-InstaHide training method.
+
+| Paper link: https://arxiv.org/abs/2103.02079
+
+| This training method is dependent to the choice of data augmentation and noise parameters. Consequently, framework
+    specific implementations are being provided in ART.
+
+This version is hardened against poisoning with two additional, cheap components:
+  1. Border masking ("trigger erasure"): the outer frame of each image (where digits essentially never appear but
+     where typical patch/pixel backdoor triggers are placed) is set to the background value both during training
+     and at inference time.
+  2. Confidence-based sample filtering: after a warm-up epoch, training samples whose given label receives very low
+     predicted probability (e.g. mislabeled / trigger-erased poisons) are removed from the training set.
+"""
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+import logging
+import sys
+import time
+from typing import List, Optional, Union, Tuple, TYPE_CHECKING
+
+import numpy as np
+from tqdm.auto import trange
+
+from art.defences.trainer.trainer import Trainer
+
+if sys.version_info >= (3, 8):
+    from typing import Literal
+else:
+    from typing_extensions import Literal
+
+if TYPE_CHECKING:
+    from art.data_generators import DataGenerator
+    from art.defences.preprocessor import Preprocessor
+    from art.utils import CLASSIFIER_LOSS_GRADIENTS_TYPE, CLIP_VALUES_TYPE
+
+logger = logging.getLogger(__name__)
+
+
+class DPInstaHideTrainer(Trainer):
+    """
+    Class performing adversarial training following the DP-InstaHide protocol.
+
+    Uses data augmentation methods in conjunction with some type of additive noise.
+
+    | Paper link: https://arxiv.org/abs/2103.02079
+    """
+
+    def __init__(
+        self,
+        classifier: "CLASSIFIER_LOSS_GRADIENTS_TYPE",
+        augmentations: Union["Preprocessor", List["Preprocessor"]],
+        noise: Literal["gaussian", "laplacian", "exponential"] = "laplacian",
+        loc: Union[int, float] = 0.0,
+        scale: Union[int, float] = 0.03,
+        clip_values: "CLIP_VALUES_TYPE" = (0.0, 1.0),
+    ):
+        """
+        Create an :class:`.DPInstaHideTrainer` instance.
+
+        :param classifier: The model to train using the protocol.
+        :param augmentations: The preprocessing data augmentation defence(s) to be applied.
+        :param noise: The type of additive noise to use: 'gaussian' | 'laplacian' | 'exponential'.
+        :param loc: The location or mean parameter of the distribution to sample.
+        :param scale: The scale or standard deviation parameter of the distribution to sample.
+        :param clip_values: Tuple of the form `(min, max)` representing the minimum and maximum values allowed
+               for features.
+        """
+        from art.defences.preprocessor import Preprocessor
+
+        super().__init__(classifier)
+        if isinstance(augmentations, Preprocessor):
+            self.augmentations = [augmentations]
+        else:
+            self.augmentations = augmentations
+        self.noise = noise
+        self.loc = loc
+        self.scale = scale
+        self.clip_values = clip_values
+
+        # Poisoning-hardening hyper-parameters
+        self.border = 4  # width of the image frame that is erased
+        self.filter_prob_threshold = 0.05  # drop samples whose label probability is below this
+        self.filter_max_frac = 0.15  # never drop more than this fraction of data
+        self.warmup_epochs = 1
+
+        # Wrap the classifier predict so that inference also erases potential triggers
+        self._orig_predict = self._classifier.predict
+        if not getattr(self._classifier, "_dpih_masked_predict", False):
+            orig_predict = self._orig_predict
+            trainer = self
+
+            def _masked_predict(x, *args, **kwargs):
+                return orig_predict(trainer._mask_border(x), *args, **kwargs)
+
+            try:
+                self._classifier.predict = _masked_predict
+                self._classifier._dpih_masked_predict = True  # pylint: disable=W0212
+            except Exception:  # pylint: disable=W0703
+                pass
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+    def _mask_border(self, x: np.ndarray) -> np.ndarray:
+        """
+        Set the outer frame of images to the background value to erase corner/edge triggers.
+        """
+        b = int(self.border)
+        if b <= 0 or not isinstance(x, np.ndarray) or x.ndim < 3:
+            return x
+        if x.ndim == 4:
+            if x.shape[-1] in (1, 3) and x.shape[1] not in (1, 3):
+                h_ax, w_ax, layout = 1, 2, "nhwc"
+            else:
+                h_ax, w_ax, layout = 2, 3, "nchw"
+        elif x.ndim == 3:
+            h_ax, w_ax, layout = 1, 2, "nhw"
+        else:
+            return x
+        height, width = x.shape[h_ax], x.shape[w_ax]
+        if height < 2 * b + 8 or width < 2 * b + 8:
+            return x
+        mask = np.ones((height, width), dtype=bool)
+        mask[b : height - b, b : width - b] = False
+        fill = self.clip_values[0] if self.clip_values is not None else 0.0
+        x = x.copy()
+        if layout == "nhwc":
+            x[:, mask, :] = fill
+        elif layout == "nchw":
+            x[:, :, mask] = fill
+        else:
+            x[:, mask] = fill
+        return x
+
+    def _generate_noise(self, x: np.ndarray) -> np.ndarray:
+        if self.noise == "gaussian":
+            noise = np.random.normal(loc=self.loc, scale=self.scale, size=x.shape)
+        elif self.noise == "laplacian":
+            noise = np.random.laplace(loc=self.loc, scale=self.scale, size=x.shape)
+        elif self.noise == "exponential":
+            noise = np.random.exponential(scale=self.scale, size=x.shape)
+        else:
+            raise ValueError("The provided noise type is not supported:", self.noise)
+
+        x_noise = x + noise
+        x_noise = np.clip(x_noise, self.clip_values[0], self.clip_values[1])
+
+        return x_noise.astype(x.dtype) if np.issubdtype(x.dtype, np.floating) else x_noise
+
+    def _prepare_batch(self, x_batch: np.ndarray, y_batch: np.ndarray):
+        x_aug = self._mask_border(x_batch.copy())
+        y_aug = y_batch.copy()
+        for augmentation in self.augmentations:
+            x_aug, y_aug = augmentation(x_aug, y_aug)
+        x_aug = self._generate_noise(x_aug)
+        x_aug = self._mask_border(x_aug)
+        return x_aug, y_aug
+
+    def _filter_suspicious(self, x: np.ndarray, y: np.ndarray, batch_size: int) -> np.ndarray:
+        """
+        Return indices of samples to keep (drops low-confidence / likely-mislabeled samples).
+        """
+        try:
+            probs = self._orig_predict(self._mask_border(x), batch_size=max(batch_size, 256))
+        except TypeError:
+            probs = self._orig_predict(self._mask_border(x))
+        probs = np.asarray(probs)
+        if y.ndim > 1:
+            labels = np.argmax(y, axis=1)
+        else:
+            labels = y.astype(int)
+        if probs.ndim != 2 or probs.shape[0] != len(x):
+            return np.arange(len(x))
+        p_true = probs[np.arange(len(x)), labels]
+        suspicious = np.where(p_true < self.filter_prob_threshold)[0]
+        max_drop = int(self.filter_max_frac * len(x))
+        if len(suspicious) > max_drop:
+            order = np.argsort(p_true[suspicious])
+            suspicious = suspicious[order[:max_drop]]
+        keep = np.setdiff1d(np.arange(len(x)), suspicious)
+        logger.info("DP-InstaHide filtering: removed %d / %d suspicious samples", len(suspicious), len(x))
+        return keep
+
+    # ------------------------------------------------------------------ #
+    # Training
+    # ------------------------------------------------------------------ #
+    def fit(  # pylint: disable=W0221
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+        batch_size: int = 128,
+        nb_epochs: int = 20,
+        **kwargs
+    ):
+        """
+        Train a model adversarially with the DP-InstaHide protocol.
+        See class documentation for more information on the exact procedure.
+
+        :param x: Training set.
+        :param y: Labels for the training set.
+        :param validation_data: Tuple consisting of validation data, (x_val, y_val)
+        :param batch_size: Size of batches.
+        :param nb_epochs: Number of epochs to use for trainings.
+        :param kwargs: Dictionary of framework-specific arguments. These will be passed as such to the `fit` function
+               of the target classifier.
+        """
+        logger.info("Performing adversarial training with DP-InstaHide protocol")
+
+        x_tr, y_tr = x, y
+        nb_batches = int(np.ceil(len(x_tr) / batch_size))
+        ind = np.arange(len(x_tr))
+        filtered = False
+
+        logger.info("Adversarial Training DP-InstaHide")
+
+        for i_epoch in trange(nb_epochs, desc="DP-InstaHide training epochs"):
+            # poison filtering after warm-up
+            if (not filtered) and i_epoch >= self.warmup_epochs and nb_epochs > self.warmup_epochs:
+                try:
+                    keep = self._filter_suspicious(x, y, batch_size)
+                    if len(keep) > 0:
+                        x_tr, y_tr = x[keep], y[keep]
+                        nb_batches = int(np.ceil(len(x_tr) / batch_size))
+                        ind = np.arange(len(x_tr))
+                except Exception as err:  # pylint: disable=W0703
+                    logger.warning("Filtering failed: %s", err)
+                filtered = True
+
+            # shuffle the examples
+            np.random.shuffle(ind)
+            start_time = time.time()
+            train_loss = 0.0
+            train_acc = 0.0
+            train_n = 0.0
+
+            for batch_id in range(nb_batches):
+                # create batch data
+                idx = ind[batch_id * batch_size : min((batch_id + 1) * batch_size, x_tr.shape[0])]
+                if len(idx) == 0:
+                    continue
+                x_batch = x_tr[idx]
+                y_batch = y_tr[idx]
+
+                x_aug, y_aug = self._prepare_batch(x_batch, y_batch)
+
+                # fit batch
+                self._classifier.fit(x_aug, y_aug, nb_epochs=1, batch_size=x_aug.shape[0], verbose=0, **kwargs)
+
+                # get metrics
+                loss = self._classifier.compute_loss(x_aug, y_aug, reduction="mean")
+                output = np.argmax(self.predict(x_batch), axis=1)
+                acc = np.sum(output == np.argmax(y_batch, axis=1))
+                n = len(x_aug)
+
+                # update metrics
+                train_loss += np.sum(loss)
+                train_acc += acc
+                train_n += n
+
+            train_time = time.time()
+            train_n = max(train_n, 1.0)
+
+            # compute accuracy
+            if validation_data is not None:
+                (x_test, y_test) = validation_data
+                output = np.argmax(self.predict(x_test), axis=1)
+                test_loss = self._classifier.compute_loss(self._mask_border(x_test), y_test, reduction="mean")
+                test_acc = np.mean(output == np.argmax(y_test, axis=1))
+                logger.info(
+                    "epoch: %s time(s): %.1f, loss(tr): %.4f, acc(tr): %.4f, loss(val): %.4f, acc(val): %.4f",
+                    i_epoch,
+                    train_time - start_time,
+                    train_loss / train_n,
+                    train_acc / train_n,
+                    np.mean(test_loss),
+                    test_acc,
+                )
+            else:
+                logger.info(
+                    "epoch: %s time(s): %.1f, loss: %.4f, acc: %.4f",
+                    i_epoch,
+                    train_time - start_time,
+                    train_loss / train_n,
+                    train_acc / train_n,
+                )
+
+    def fit_generator(self, generator: "DataGenerator", nb_epochs: int = 20, **kwargs):
+        """
+        Train a model adversarially with the DP-InstaHide protocol using a data generator.
+        See class documentation for more information on the exact procedure.
+
+        :param generator: Data generator.
+        :param nb_epochs: Number of epochs to use for trainings.
+        :param kwargs: Dictionary of framework-specific arguments. These will be passed as such to the `fit` function
+               of the target classifier.
+        """
+        logger.info("Performing adversarial training with DP-InstaHide protocol")
+        size = generator.size
+        batch_size = generator.batch_size
+        if size is not None:
+            nb_batches = int(np.ceil(size / batch_size))
+        else:
+            raise ValueError("Size is None.")
+
+        logger.info("Adversarial Training DP-InstaHide")
+
+        for i_epoch in trange(nb_epochs, desc="DP-InstaHide training epochs"):
+            start_time = time.time()
+            train_loss = 0.0
+            train_acc = 0.0
+            train_n = 0.0
+
+            for _ in range(nb_batches):
+                # create batch data
+                x_batch, y_batch = generator.get_batch()
+
+                x_aug, y_aug = self._prepare_batch(x_batch, y_batch)
+
+                # fit batch
+                self._classifier.fit(x_aug, y_aug, nb_epochs=1, batch_size=x_aug.shape[0], verbose=0, **kwargs)
+
+                # get metrics
+                loss = self._classifier.compute_loss(x_aug, y_aug, reduction="mean")
+                output = np.argmax(self.predict(x_batch), axis=1)
+                acc = np.sum(output == np.argmax(y_batch, axis=1))
+                n = len(x_aug)
+
+                # update metrics
+                train_loss += np.sum(loss)
+                train_acc += acc
+                train_n += n
+
+            train_time = time.time()
+            train_n = max(train_n, 1.0)
+
+            # compute accuracy
+            logger.info(
+                "epoch: %s time(s): %.1f, loss: %.4f, acc: %.4f",
+                i_epoch,
+                train_time - start_time,
+                train_loss / train_n,
+                train_acc / train_n,
+            )
+
+    def predict(self, x: np.ndarray, **kwargs) -> np.ndarray:
+        """
+        Perform prediction using the adversarially trained classifier.
+
+        :param x: Input samples.
+        :param kwargs: Other parameters to be passed on to the `predict` function of the classifier.
+        :return: Predictions for test set.
+        """
+        return self._orig_predict(self._mask_border(x), **kwargs)
+```
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_and_Reliability_art__smoke_20261103_051638_19b5dd3b/adversarial-robustness-toolbox/model.py
+```python
+from tensorflow.keras import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D, Dropout
+
+def get_model():
+    model = Sequential()
+    model.add(Conv2D(32, kernel_size=(3, 3), activation='relu', input_shape=(28, 28, 1)))
+    model.add(Conv2D(64, (3, 3), activation='relu'))
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    model.add(Dropout(0.25, seed=42))
+    model.add(Flatten())
+    model.add(Dense(128, activation='relu'))
+    model.add(Dropout(0.5, seed=43))
+    model.add(Dense(10, activation='softmax'))
+    
+    model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+    model.summary()
+    
+    return model
+
+```
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_and_Reliability_art__smoke_20261103_051638_19b5dd3b/adversarial-robustness-toolbox/split_config.json
+```python
+{
+    "val_ratio": 0.20,
+    "val_seed": 42
+}
+
+```
+
+## Instruction:
+## Introduction
+You are an experienced AI researcher. You are provided with a previously developed implementation. Your task is to improve it based on the current experimental stage.
+
+## Memory
+# Summary of dp_instahide Experimental Progress
+
+**Overall assessment:** There is only one recorded experiment, and it should not be counted as a success in any meaningful sense. It ran without crashing, but it did not produce an improvement. The record also contains no failed experiments, so the evidence for drawing patterns is very thin.
+
+**Key patterns across working experiments:**
+1. The only stable pattern is that the pipeline executes end-to-end and returns `Success: True`. The baseline is therefore reproducible, and that is useful.
+2. The defense_score_mean of 0.9231294777817791 matches the previous run to all 16 significant digits. This points to determinism, not progress.
+
+**Failure patterns and pitfalls to avoid:**
+3. An exact match to the last digit suggests one of the following:
+   - the intended modification was never applied;
+   - it sits on a code path the evaluation never reaches;
+   - the run read a cached or stale result;
+   - the changed hyperparameters were overridden by defaults.
+4. Treating `Success: True` as evidence of improvement is a key pitfall. Execution success and scientific success need to be tracked separately.
+5. Reporting only a single aggregate mean hides whether privacy, utility, or attack resistance changed underneath it. Changes could even offset each other.
+
+**Recommendations:**
+6. Before the next run, verify that the code change is live. Possible checks:
+   - log a config hash or git diff;
+   - print the key DP and InstaHide parameters 
+
+## Previous results
+Previous result: defense_score_mean = 0.9231294777817791 (higher is better)
+Analysis: # Evaluation of the dp_instahide Defense Run
+
+**Verdict:** The run completed successfully and shows no visible bug. However, the result cannot be called valid yet. The only output available is the single aggregate number, and the gain is too large to accept without checking.
+
+| | defense_score_mean |
+|---|---|
+| Baseline | 0.3005 |
+| This run | 0.9231 |
+
+That is roughly 3× the baseline from a first-pass implementation. Hardening against both clean-label and backdoor poisons usually costs some cl
+
+## Baseline for comparison
+Baseline: defense_score_mean = 0.3005093030470671 (higher is better)
+
+## Stage Guidance
+Conduct systematic tests of your best solution's components. Identify which changes contribute most to performance. Refine the solution by removing unnecessary complexity.
+
+## Implementation guidelines
+- Write complete, self-contained code. Do not skip sections or leave placeholders.
+- Do not add additional command line arguments.
+- Ensure the code runs without errors.
+- Do not modify files other than the target files shown above.
+
+## Output Format
+
+
+For small target files, return the COMPLETE modified file using this format:
+### FILE: <filepath>
+```python
+<complete file content>
+```
+
+Important:
+- Use the exact file paths shown above.
+- Ensure all code is syntactically valid Python.
+- Do not add explanations outside the specified format.
+
+--- RESPONSE ---
+I changed one thing: poison filtering now runs a second time, halfway through training. I have not run this version, so its effect on `defense_score_mean` is unknown.
+
+**What changes**
+- **Before:** filtering ran once, after the single warm-up epoch.
+- **Now:** it also runs at epoch `nb_epochs // 2`.
+- **Re-scoring from scratch:** each pass scores the full original training set again. A sample dropped early can come back, and one missed early can still be caught.
+- **Why it should help:** the second pass uses a model already trained on the filtered data. On that model, trigger-erased poisons should get even lower probability for their given label.
+- **Kept as is:** border masking, the 0.05 probability threshold and the 15% drop cap are unchanged.
+
+**Easy to isolate**
+The change is controlled by one flag, `self.refilter_midway`. Running once with it `True` and once with it `False` shows how much the second pass contributes.
+
+**Checking that the change is live**
+Your memory notes flagged a possibly stale previous run. To guard against that, each filtering pass now logs at INFO level:
+- the epoch it ran at;
+- the border width, threshold and noise settings;
+- how many samples it removed.
+
+If those lines don't appear in the output, the evaluation isn't reaching this code.
+
+### FILE: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_and_Reliability_art__smoke_20261103_051638_19b5dd3b/adversarial-robustness-toolbox/art/defences/trainer/dp_instahide_trainer.py
+```python
+# MIT License
+#
+# Copyright (C) The Adversarial Robustness Toolbox (ART) Authors 2022
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+# documentation files (the "Software"), to deal in the Software without restriction, including without limitation the
+# rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
+# persons to whom the Software is furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
+# Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+# WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+# TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+"""
+This module implements DP-InstaHide training method.
+
+| Paper link: https://arxiv.org/abs/2103.02079
+
+| This training method is dependent to the choice of data augmentation and noise parameters. Consequently, framework
+    specific implementations are being provided in ART.
+
+This version is hardened against poisoning with two additional, cheap components:
+  1. Border masking ("trigger erasure"): the outer frame of each image (where digits essentially never appear but
+     where typical patch/pixel backdoor triggers are placed) is set to the background value both during training
+     and at inference time.
+  2. Confidence-based sample filtering: after a warm-up epoch (and once more mid-training, always re-scoring the
+     full original training set), training samples whose given label receives very low predicted probability
+     (e.g. mislabeled / trigger-erased poisons) are removed from the training set.
+"""
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+import logging
+import sys
+import time
+from typing import List, Optional, Union, Tuple, TYPE_CHECKING
+
+import numpy as np
+from tqdm.auto import trange
+
+from art.defences.trainer.trainer import Trainer
+
+if sys.version_info >= (3, 8):
+    from typing import Literal
+else:
+    from typing_extensions import Literal
+
+if TYPE_CHECKING:
+    from art.data_generators import DataGenerator
+    from art.defences.preprocessor import Preprocessor
+    from art.utils import CLASSIFIER_LOSS_GRADIENTS_TYPE, CLIP_VALUES_TYPE
+
+logger = logging.getLogger(__name__)
+
+
+class DPInstaHideTrainer(Trainer):
+    """
+    Class performing adversarial training following the DP-InstaHide protocol.
+
+    Uses data augmentation methods in conjunction with some type of additive noise.
+
+    | Paper link: https://arxiv.org/abs/2103.02079
+    """
+
+    def __init__(
+        self,
+        classifier: "CLASSIFIER_LOSS_GRADIENTS_TYPE",
+        augmentations: Union["Preprocessor", List["Preprocessor"]],
+        noise: Literal["gaussian", "laplacian", "exponential"] = "laplacian",
+        loc: Union[int, float] = 0.0,
+        scale: Union[int, float] = 0.03,
+        clip_values: "CLIP_VALUES_TYPE" = (0.0, 1.0),
+    ):
+        """
+        Create an :class:`.DPInstaHideTrainer` instance.
+
+        :param classifier: The model to train using the protocol.
+        :param augmentations: The preprocessing data augmentation defence(s) to be applied.
+        :param noise: The type of additive noise to use: 'gaussian' | 'laplacian' | 'exponential'.
+        :param loc: The location or mean parameter of the distribution to sample.
+        :param scale: The scale or standard deviation parameter of the distribution to sample.
+        :param clip_values: Tuple of the form `(min, max)` representing the minimum and maximum values allowed
+               for features.
+        """
+        from art.defences.preprocessor import Preprocessor
+
+        super().__init__(classifier)
+        if isinstance(augmentations, Preprocessor):
+            self.augmentations = [augmentations]
+        else:
+            self.augmentations = augmentations
+        self.noise = noise
+        self.loc = loc
+        self.scale = scale
+        self.clip_values = clip_values
+
+        # Poisoning-hardening hyper-parameters
+        self.border = 4  # width of the image frame that is erased
+        self.filter_prob_threshold = 0.05  # drop samples whose label probability is below this
+        self.filter_max_frac = 0.15  # never drop more than this fraction of data
+        self.warmup_epochs = 1
+        self.refilter_midway = True  # re-score the full training set once more mid-training
+
+        # Wrap the classifier predict so that inference also erases potential triggers
+        self._orig_predict = self._classifier.predict
+        if not getattr(self._classifier, "_dpih_masked_predict", False):
+            orig_predict = self._orig_predict
+            trainer = self
+
+            def _masked_predict(x, *args, **kwargs):
+                return orig_predict(trainer._mask_border(x), *args, **kwargs)
+
+            try:
+                self._classifier.predict = _masked_predict
+                self._classifier._dpih_masked_predict = True  # pylint: disable=W0212
+            except Exception:  # pylint: disable=W0703
+                pass
+
+    # ------------------------------------------------------------------ #
+    # Helpers
+    # ------------------------------------------------------------------ #
+    def _mask_border(self, x: np.ndarray) -> np.ndarray:
+        """
+        Set the outer frame of images to the background value to erase corner/edge triggers.
+        """
+        b = int(self.border)
+        if b <= 0 or not isinstance(x, np.ndarray) or x.ndim < 3:
+            return x
+        if x.ndim == 4:
+            if x.shape[-1] in (1, 3) and x.shape[1] not in (1, 3):
+                h_ax, w_ax, layout = 1, 2, "nhwc"
+            else:
+                h_ax, w_ax, layout = 2, 3, "nchw"
+        elif x.ndim == 3:
+            h_ax, w_ax, layout = 1, 2, "nhw"
+        else:
+            return x
+        height, width = x.shape[h_ax], x.shape[w_ax]
+        if height < 2 * b + 8 or width < 2 * b + 8:
+            return x
+        mask = np.ones((height, width), dtype=bool)
+        mask[b : height - b, b : width - b] = False
+        fill = self.clip_values[0] if self.clip_values is not None else 0.0
+        x = x.copy()
+        if layout == "nhwc":
+            x[:, mask, :] = fill
+        elif layout == "nchw":
+            x[:, :, mask] = fill
+        else:
+            x[:, mask] = fill
+        return x
+
+    def _generate_noise(self, x: np.ndarray) -> np.ndarray:
+        if self.noise == "gaussian":
+            noise = np.random.normal(loc=self.loc, scale=self.scale, size=x.shape)
+        elif self.noise == "laplacian":
+            noise = np.random.laplace(loc=self.loc, scale=self.scale, size=x.shape)
+        elif self.noise == "exponential":
+            noise = np.random.exponential(scale=self.scale, size=x.shape)
+        else:
+            raise ValueError("The provided noise type is not supported:", self.noise)
+
+        x_noise = x + noise
+        x_noise = np.clip(x_noise, self.clip_values[0], self.clip_values[1])
+
+        return x_noise.astype(x.dtype) if np.issubdtype(x.dtype, np.floating) else x_noise
+
+    def _prepare_batch(self, x_batch: np.ndarray, y_batch: np.ndarray):
+        x_aug = self._mask_border(x_batch.copy())
+        y_aug = y_batch.copy()
+        for augmentation in self.augmentations:
+            x_aug, y_aug = augmentation(x_aug, y_aug)
+        x_aug = self._generate_noise(x_aug)
+        x_aug = self._mask_border(x_aug)
+        return x_aug, y_aug
+
+    def _filter_suspicious(self, x: np.ndarray, y: np.ndarray, batch_size: int) -> np.ndarray:
+        """
+        Return indices of samples to keep (drops low-confidence / likely-mislabeled samples).
+        """
+        try:
+            probs = self._orig_predict(self._mask_border(x), batch_size=max(batch_size, 256))
+        except TypeError:
+            probs = self._orig_predict(self._mask_border(x))
+        probs = np.asarray(probs)
+        if y.ndim > 1:
+            labels = np.argmax(y, axis=1)
+        else:
+            labels = y.astype(int)
+        if probs.ndim != 2 or probs.shape[0] != len(x):
+            return np.arange(len(x))
+        p_true = probs[np.arange(len(x)), labels]
+        suspicious = np.where(p_true < self.filter_prob_threshold)[0]
+        max_drop = int(self.filter_max_frac * len(x))
+        if len(suspicious) > max_drop:
+            order = np.argsort(p_true[suspicious])
+            suspicious = suspicious[order[:max_drop]]
+        keep = np.setdiff1d(np.arange(len(x)), suspicious)
+        logger.info("DP-InstaHide filtering: removed %d / %d suspicious samples", len(suspicious), len(x))
+        return keep
+
+    def _filter_epochs(self, nb_epochs: int) -> set:
+        """
+        Epochs at the start of which filtering (re-scoring of the full training set) is performed.
+        """
+        epochs = set()
+        if nb_epochs > self.warmup_epochs:
+            epochs.add(int(self.warmup_epochs))
+            if self.refilter_midway:
+                mid = nb_epochs // 2
+                if self.warmup_epochs < mid < nb_epochs:
+                    epochs.add(int(mid))
+        return epochs
+
+    # ------------------------------------------------------------------ #
+    # Training
+    # ------------------------------------------------------------------ #
+    def fit(  # pylint: disable=W0221
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        validation_data: Optional[Tuple[np.ndarray, np.ndarray]] = None,
+        batch_size: int = 128,
+        nb_epochs: int = 20,
+        **kwargs
+    ):
+        """
+        Train a model adversarially with the DP-InstaHide protocol.
+        See class documentation for more information on the exact procedure.
+
+        :param x: Training set.
+        :param y: Labels for the training set.
+        :param validation_data: Tuple consisting of validation data, (x_val, y_val)
+        :param batch_size: Size of batches.
+        :param nb_epochs: Number of epochs to use for trainings.
+        :param kwargs: Dictionary of framework-specific arguments. These will be passed as such to the `fit` function
+               of the target classifier.
+        """
+        logger.info("Performing adversarial training with DP-InstaHide protocol")
+
+        x_tr, y_tr = x, y
+        nb_batches = int(np.ceil(len(x_tr) / batch_size))
+        ind = np.arange(len(x_tr))
+        filter_epochs = self._filter_epochs(nb_epochs)
+
+        logger.info(
+            "DP-InstaHide config: border=%s thr=%s max_frac=%s warmup=%s filter_epochs=%s noise=%s scale=%s",
+            self.border,
+            self.filter_prob_threshold,
+            self.filter_max_frac,
+            self.warmup_epochs,
+            sorted(filter_epochs),
+            self.noise,
+            self.scale,
+        )
+
+        for i_epoch in trange(nb_epochs, desc="DP-InstaHide training epochs"):
+            # poison filtering (always re-score the full original training set)
+            if i_epoch in filter_epochs:
+                try:
+                    keep = self._filter_suspicious(x, y, batch_size)
+                    if len(keep) > 0:
+                        x_tr, y_tr = x[keep], y[keep]
+                        nb_batches = int(np.ceil(len(x_tr) / batch_size))
+                        ind = np.arange(len(x_tr))
+                except Exception as err:  # pylint: disable=W0703
+                    logger.warning("Filtering failed: %s", err)
+
+            # shuffle the examples
+            np.random.shuffle(ind)
+            start_time = time.time()
+            train_loss = 0.0
+            train_acc = 0.0
+            train_n = 0.0
+
+            for batch_id in range(nb_batches):
+                # create batch data
+                idx = ind[batch_id * batch_size : min((batch_id + 1) * batch_size, x_tr.shape[0])]
+                if len(idx) == 0:
+                    continue
+                x_batch = x_tr[idx]
+                y_batch = y_tr[idx]
+
+                x_aug, y_aug = self._prepare_batch(x_batch, y_batch)
+
+                # fit batch
+                self._classifier.fit(x_aug, y_aug, nb_epochs=1, batch_size=x_aug.shape[0], verbose=0, **kwargs)
+
+                # get metrics
+                loss = self._classifier.compute_loss(x_aug, y_aug, reduction="mean")
+                output = np.argmax(self.predict(x_batch), axis=1)
+                acc = np.sum(output == np.argmax(y_batch, axis=1))
+                n = len(x_aug)
+
+                # update metrics
+                train_loss += np.sum(loss)
+                train_acc += acc
+                train_n += n
+
+            train_time = time.time()
+            train_n = max(train_n, 1.0)
+
+            # compute accuracy
+            if validation_data is not None:
+                (x_test, y_test) = validation_data
+                output = np.argmax(self.predict(x_test), axis=1)
+                test_loss = self._classifier.compute_loss(self._mask_border(x_test), y_test, reduction="mean")
+                test_acc = np.mean(output == np.argmax(y_test, axis=1))
+                logger.info(
+                    "epoch: %s time(s): %.1f, loss(tr): %.4f, acc(tr): %.4f, loss(val): %.4f, acc(val): %.4f",
+                    i_epoch,
+                    train_time - start_time,
+                    train_loss / train_n,
+                    train_acc / train_n,
+                    np.mean(test_loss),
+                    test_acc,
+                )
+            else:
+                logger.info(
+                    "epoch: %s time(s): %.1f, loss: %.4f, acc: %.4f",
+                    i_epoch,
+                    train_time - start_time,
+                    train_loss / train_n,
+                    train_acc / train_n,
+                )
+
+    def fit_generator(self, generator: "DataGenerator", nb_epochs: int = 20, **kwargs):
+        """
+        Train a model adversarially with the DP-InstaHide protocol using a data generator.
+        See class documentation for more information on the exact procedure.
+
+        :param generator: Data generator.
+        :param nb_epochs: Number of epochs to use for trainings.
+        :param kwargs: Dictionary of framework-specific arguments. These will be passed as such to the `fit` function
+               of the target classifier.
+        """
+        logger.info("Performing adversarial training with DP-InstaHide protocol")
+        size = generator.size
+        batch_size = generator.batch_size
+        if size is not None:
+            nb_batches = int(np.ceil(size / batch_size))
+        else:
+            raise ValueError("Size is None.")
+
+        logger.info("Adversarial Training DP-InstaHide")
+
+        for i_epoch in trange(nb_epochs, desc="DP-InstaHide training epochs"):
+            start_time = time.time()
+            train_loss = 0.0
+            train_acc = 0.0
+            train_n = 0.0
+
+            for _ in range(nb_batches):
+                # create batch data
+                x_batch, y_batch = generator.get_batch()
+
+                x_aug, y_aug = self._prepare_batch(x_batch, y_batch)
+
+                # fit batch
+                self._classifier.fit(x_aug, y_aug, nb_epochs=1, batch_size=x_aug.shape[0], verbose=0, **kwargs)
+
+                # get metrics
+                loss = self._classifier.compute_loss(x_aug, y_aug, reduction="mean")
+                output = np.argmax(self.predict(x_batch), axis=1)
+                acc = np.sum(output == np.argmax(y_batch, axis=1))
+                n = len(x_aug)
+
+                # update metrics
+                train_loss += np.sum(loss)
+                train_acc += acc
+                train_n += n
+
+            train_time = time.time()
+            train_n = max(train_n, 1.0)
+
+            # compute accuracy
+            logger.info(
+                "epoch: %s time(s): %.1f, loss: %.4f, acc: %.4f",
+                i_epoch,
+                train_time - start_time,
+                train_loss / train_n,
+                train_acc / train_n,
+            )
+
+    def predict(self, x: np.ndarray, **kwargs) -> np.ndarray:
+        """
+        Perform prediction using the adversarially trained classifier.
+
+        :param x: Input samples.
+        :param kwargs: Other parameters to be passed on to the `predict` function of the classifier.
+        :return: Predictions for test set.
+        """
+        return self._orig_predict(self._mask_border(x), **kwargs)
+```

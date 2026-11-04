@@ -1,0 +1,15 @@
+/home/ec2-user/fml_envs/openood/lib64/python3.9/site-packages/networkx/utils/backends.py:135: RuntimeWarning: networkx backend defined more than once: nx-loopback
+  backends.update(_get_backends("networkx.backends"))
+Visible pool: 53000, Hidden ID test: 7000
+Loading checkpoint from model_checkpoint/model.pt (skipping training)
+Hidden ID test: 7000
+
+=== TEST Results (OOD: SVHN) ===
+  AUROC: 0.921193
+  FPR95: 0.586400
+
+Saved results to results_tmp/test_info.json
+
+real	0m7.623s
+user	0m16.156s
+sys	0m1.602s

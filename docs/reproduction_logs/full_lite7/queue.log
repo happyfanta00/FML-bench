@@ -1,0 +1,6 @@
+2026-11-03 06:47:31 start generalization_officehome gpu=[0]
+2026-11-03 06:47:31 start robustness_and_reliability_art gpu=[]
+2026-11-03 06:47:31 start data_efficiency_usb gpu=[1]
+2026-11-03 06:47:31 start privacy_privacymeter gpu=[0]
+2026-11-03 06:47:31 start robustness_openood gpu=[1]
+2026-11-03 16:38:38 end   robustness_and_reliability_art rc=0

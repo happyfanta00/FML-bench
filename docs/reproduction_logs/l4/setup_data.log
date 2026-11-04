@@ -1,0 +1,144 @@
+[setup] Skipping conda env creation (--skip-envs)
+[setup] ============================================================
+[setup] Stage 2/2: Task workspaces
+[setup] ============================================================
+[setup] --- Privacy_opacus ---
+[setup] workspace/Privacy_opacus/opacus already exists, skipping clone
+[setup] $ git add .  (cwd=/home/ec2-user/FML-bench/workspace/Privacy_opacus/opacus)
+[setup] downloading CIFAR-10 for opacus
+[setup] $ /home/ec2-user/fml_envs/opacus/bin/python -c '
+import torchvision
+torchvision.datasets.CIFAR10(root=r'"'"'/home/ec2-user/FML-bench/workspace/Privacy_opacus/opacus/data'"'"', train=True,  download=True)
+torchvision.datasets.CIFAR10(root=r'"'"'/home/ec2-user/FML-bench/workspace/Privacy_opacus/opacus/data'"'"', train=False, download=True)
+'  (cwd=/home/ec2-user/FML-bench)
+[setup] $ git add -f data/  (cwd=/home/ec2-user/FML-bench/workspace/Privacy_opacus/opacus)
+[setup] $ git commit -m 'add cifar-10 dataset for agent benchmark'  (cwd=/home/ec2-user/FML-bench/workspace/Privacy_opacus/opacus)
+[detached HEAD 03ea27b] add cifar-10 dataset for agent benchmark
+ Committer: EC2 Default User <ec2-user@ip-172-31-62-193.us-west-2.compute.internal>
+Your name and email address were configured automatically based
+on your username and hostname. Please check that they are accurate.
+You can suppress this message by setting them explicitly:
+
+    git config --global user.name "Your Name"
+    git config --global user.email you@example.com
+
+After doing this, you may fix the identity used for this commit with:
+
+    git commit --amend --reset-author
+
+ 9 files changed, 1 insertion(+)
+ create mode 100644 data/cifar-10-batches-py/batches.meta
+ create mode 100644 data/cifar-10-batches-py/data_batch_1
+ create mode 100644 data/cifar-10-batches-py/data_batch_2
+ create mode 100644 data/cifar-10-batches-py/data_batch_3
+ create mode 100644 data/cifar-10-batches-py/data_batch_4
+ create mode 100644 data/cifar-10-batches-py/data_batch_5
+ create mode 100644 data/cifar-10-batches-py/readme.html
+ create mode 100644 data/cifar-10-batches-py/test_batch
+ create mode 100644 data/cifar-10-python.tar.gz
+[setup] --- Continual_Learning_pycil ---
+[setup] workspace/Continual_Learning_pycil/PyCIL already exists, skipping clone
+[setup] $ git add .  (cwd=/home/ec2-user/FML-bench/workspace/Continual_Learning_pycil/PyCIL)
+[setup] --- Data_Efficiency_usb ---
+[setup] workspace/Data_Efficiency_usb/Semi-supervised-learning already exists, skipping clone
+[setup] $ git add .  (cwd=/home/ec2-user/FML-bench/workspace/Data_Efficiency_usb/Semi-supervised-learning)
+[setup] --- Generalization_domainbed ---
+[setup] workspace/Generalization_domainbed/DomainBed already exists, skipping clone
+[setup] --- Generalization_domainbed_officehome ---
+[setup] workspace/Generalization_domainbed_officehome/DomainBed already exists, skipping clone
+[setup] --- Privacy_privacymeter ---
+[setup] workspace/Privacy_privacymeter/ml_privacy_meter already exists, skipping clone
+[setup] downloading CIFAR-10 + generating pkl files for privacymeter
+[setup] $ /home/ec2-user/fml_envs/privacy_meter/bin/python -c '
+import os, pickle, torchvision
+from torchvision import transforms
+path = r'"'"'/home/ec2-user/FML-bench/workspace/Privacy_privacymeter/ml_privacy_meter/data/cifar10'"'"'
+os.makedirs(os.path.dirname(path), exist_ok=True)
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+])
+all_data = torchvision.datasets.CIFAR10(root=path, train=True,  download=True, transform=transform)
+test_data = torchvision.datasets.CIFAR10(root=path, train=False, download=True, transform=transform)
+with open(path + '"'"'.pkl'"'"', '"'"'wb'"'"') as f:
+    pickle.dump(all_data, f)
+with open(path + '"'"'_population.pkl'"'"', '"'"'wb'"'"') as f:
+    pickle.dump(test_data, f)
+'
+[setup] $ git add -f data/  (cwd=/home/ec2-user/FML-bench/workspace/Privacy_privacymeter/ml_privacy_meter)
+[setup] $ git commit -m 'add cifar-10 dataset and pkl files for agent benchmark'  (cwd=/home/ec2-user/FML-bench/workspace/Privacy_privacymeter/ml_privacy_meter)
+[detached HEAD fce21e4] add cifar-10 dataset and pkl files for agent benchmark
+ Committer: EC2 Default User <ec2-user@ip-172-31-62-193.us-west-2.compute.internal>
+Your name and email address were configured automatically based
+on your username and hostname. Please check that they are accurate.
+You can suppress this message by setting them explicitly:
+
+    git config --global user.name "Your Name"
+    git config --global user.email you@example.com
+
+After doing this, you may fix the identity used for this commit with:
+
+    git commit --amend --reset-author
+
+ 11 files changed, 1 insertion(+)
+ create mode 100644 data/cifar10.pkl
+ create mode 100644 data/cifar10/cifar-10-batches-py/batches.meta
+ create mode 100644 data/cifar10/cifar-10-batches-py/data_batch_1
+ create mode 100644 data/cifar10/cifar-10-batches-py/data_batch_2
+ create mode 100644 data/cifar10/cifar-10-batches-py/data_batch_3
+ create mode 100644 data/cifar10/cifar-10-batches-py/data_batch_4
+ create mode 100644 data/cifar10/cifar-10-batches-py/data_batch_5
+ create mode 100644 data/cifar10/cifar-10-batches-py/readme.html
+ create mode 100644 data/cifar10/cifar-10-batches-py/test_batch
+ create mode 100644 data/cifar10/cifar-10-python.tar.gz
+ create mode 100644 data/cifar10_population.pkl
+[setup] --- Robustness_and_Reliability_art ---
+[setup] workspace/Robustness_and_Reliability_art/adversarial-robustness-toolbox already exists, skipping clone
+[setup] $ git add .  (cwd=/home/ec2-user/FML-bench/workspace/Robustness_and_Reliability_art/adversarial-robustness-toolbox)
+[setup] --- Robustness_openood ---
+[setup] workspace/Robustness_openood/OpenOOD already exists, skipping clone
+[setup] $ git add .  (cwd=/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD)
+[setup] downloading CIFAR-10/100 + SVHN for openood
+[setup] $ /home/ec2-user/fml_envs/openood/bin/python -c '
+import torchvision
+torchvision.datasets.CIFAR10(root=r'"'"'/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD/data'"'"', train=True,  download=True)
+torchvision.datasets.CIFAR10(root=r'"'"'/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD/data'"'"', train=False, download=True)
+torchvision.datasets.CIFAR100(root=r'"'"'/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD/data'"'"', train=False, download=True)
+torchvision.datasets.SVHN(root=r'"'"'/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD/data/svhn'"'"', split='"'"'test'"'"', download=True)
+'
+[setup] $ git add -f data/  (cwd=/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD)
+[setup] $ git commit -m 'add cifar-10/100 and svhn datasets for agent benchmark'  (cwd=/home/ec2-user/FML-bench/workspace/Robustness_openood/OpenOOD)
+[detached HEAD 2623238] add cifar-10/100 and svhn datasets for agent benchmark
+ Committer: EC2 Default User <ec2-user@ip-172-31-62-193.us-west-2.compute.internal>
+Your name and email address were configured automatically based
+on your username and hostname. Please check that they are accurate.
+You can suppress this message by setting them explicitly:
+
+    git config --global user.name "Your Name"
+    git config --global user.email you@example.com
+
+After doing this, you may fix the identity used for this commit with:
+
+    git commit --amend --reset-author
+
+ 14 files changed, 11 insertions(+)
+ create mode 100644 data/cifar-10-batches-py/batches.meta
+ create mode 100644 data/cifar-10-batches-py/data_batch_1
+ create mode 100644 data/cifar-10-batches-py/data_batch_2
+ create mode 100644 data/cifar-10-batches-py/data_batch_3
+ create mode 100644 data/cifar-10-batches-py/data_batch_4
+ create mode 100644 data/cifar-10-batches-py/data_batch_5
+ create mode 100644 data/cifar-10-batches-py/readme.html
+ create mode 100644 data/cifar-10-batches-py/test_batch
+ create mode 100644 data/cifar-10-python.tar.gz
+ create mode 100644 data/cifar-100-python/file.txt~
+ create mode 100644 data/cifar-100-python/meta
+ create mode 100644 data/cifar-100-python/test
+ create mode 100644 data/cifar-100-python/train
+ create mode 100644 data/svhn/test_32x32.mat
+[setup] ============================================================
+[setup] Setup complete.
+[setup] ============================================================
+[setup] Next:
+[setup]   conda activate fmlbench
+[setup]   python run_agent_benchmark.py --agent-config configs/agents/ai_scientist_v2.yaml --task-config configs/tasks/causality_causalml.yaml --model gpt-5 --provider OpenAI
