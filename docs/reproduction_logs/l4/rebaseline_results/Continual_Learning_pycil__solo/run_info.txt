@@ -1,7 +1,0 @@
-task=Continual_Learning_pycil env=pycil gpu='2'
-copy=workspace/Continual_Learning_pycil__rebaseline_20261103_155836
-repo HEAD: 8235c3b add cifar-100 dataset for agent benchmark; changes: 0
-== VAL start Tue Nov  3 15:58:40 UTC 2026
-== VAL end Tue Nov  3 16:10:58 UTC 2026 rc=0
-== TEST start Tue Nov  3 16:10:59 UTC 2026
-== TEST end Tue Nov  3 16:23:26 UTC 2026 rc=0
