@@ -10,6 +10,7 @@ import os.path as osp
 import shutil
 import signal
 import subprocess
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -252,6 +253,7 @@ class BenchmarkExecutor:
             SubprocessResult with returncode, stdout, and stderr.
         """
         full_cmd, env = env_command(self.conda_env, ["bash", "-c", command])
+        start = time.monotonic()
 
         try:
             print(f"Running command: {' '.join(full_cmd)}")
@@ -269,6 +271,7 @@ class BenchmarkExecutor:
             self._current_proc = proc
             stdout, stderr = proc.communicate(timeout=self.timeout)
             self._current_proc = None
+            print(f"Command finished in {time.monotonic() - start:.1f} s (returncode {proc.returncode})")
             return SubprocessResult(proc.returncode, stdout=stdout, stderr=stderr)
 
         except subprocess.TimeoutExpired:

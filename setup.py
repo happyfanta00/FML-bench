@@ -289,10 +289,14 @@ def setup_robustness_art(args):
                ])
 
 
-def setup_privacy_privacymeter(args):
-    repo = clone_repo(WORKSPACE / "Privacy_privacymeter", "ml_privacy_meter",
+def clone_privacymeter():
+    return clone_repo(WORKSPACE / "Privacy_privacymeter", "ml_privacy_meter",
                       "https://github.com/privacytrustlab/ml_privacy_meter.git",
                       "e384af8fd9319b8eeb1303aa82474df1441e3c59")
+
+
+def setup_privacy_privacymeter(args):
+    repo = clone_privacymeter()
     if args.skip_data:
         return
     pkl = repo / "data" / "cifar10.pkl"
@@ -355,10 +359,8 @@ def setup_generalization_officehome(args):
     if not (out / "office_home").exists():
         info("downloading OfficeHome dataset (~2.4GB)")
         out.mkdir(parents=True, exist_ok=True)
-        run(["pip", "install", "gdown", "-q"], check=False)
-        run(["python", "-c",
-             "import gdown; gdown.download(id='1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa', "
-             "output='office_home.zip', quiet=False)"], cwd=out)
+        # uvx: no host pip/python with gdown needed
+        run(["uvx", "gdown", "1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa", "-O", "office_home.zip"], cwd=out)
         run(["unzip", "-q", "office_home.zip"], cwd=out)
         run(["mv", "office_home_dg", "office_home"], cwd=out)
         (out / "office_home.zip").unlink(missing_ok=True)
@@ -585,7 +587,9 @@ CONDA_ENVS = {
     ]),
     # torch 2.4.1+cu118 -> 2.7.1+cu128 (Blackwell). The repo's requirements.txt pins the cu118
     # torch stack (torch/triton/nvidia-*-cu11), so install it without those lines.
-    "privacy_meter": lambda: uv_create("privacy_meter", "3.12", [
+    # The env is built from the cloned repo's requirements.txt, so clone it first (envs are set
+    # up before workspaces; on a fresh machine the repo would not exist yet).
+    "privacy_meter": lambda: (clone_privacymeter(), uv_create("privacy_meter", "3.12", [
         "grep -vE '^(torch|torchvision|torchaudio|triton|nvidia-|--extra-index-url)' "
         f"{WORKSPACE/'Privacy_privacymeter/ml_privacy_meter/requirements.txt'} > /tmp/privacy_meter_requirements.txt "
         "&& uv pip install -r /tmp/privacy_meter_requirements.txt",
@@ -593,7 +597,7 @@ CONDA_ENVS = {
         "uv pip install numpy==1.26.3 scipy==1.14.1 scikit-learn==1.5.2 opacus==1.5.2 "
         "matplotlib==3.9.2",
         "uv pip install weco==0.3.0",
-    ]),
+    ])),
     "aif360": lambda: conda_create("aif360", "3.10", [
         'conda install "numpy<2" scipy pandas scikit-learn==1.1.3 "matplotlib==3.8.4" tqdm seaborn -y',
         'pip install lightgbm==3.1.1 "igraph[plotting]==0.9.8"',
@@ -701,8 +705,13 @@ def parse_args():
     return p.parse_args()
 
 
-def check_prereqs():
-    missing = [c for c in ("conda", "git", "pip", "wget", "unzip", "curl") if not have_command(c)]
+def check_prereqs(envs_needed=(), skip_envs=False):
+    # conda is only required when a selected env is still conda-based; the uv envs need uv.
+    needed = ["git", "wget", "unzip", "curl", "uv"]
+    uses_conda = any("conda_create" in CONDA_ENVS[e].__code__.co_names for e in envs_needed)
+    if uses_conda and not skip_envs:
+        needed += ["conda", "pip"]
+    missing = [c for c in needed if not have_command(c)]
     if missing:
         die(f"missing required commands: {', '.join(missing)}")
     if not ML_TASKS.exists():
@@ -718,8 +727,6 @@ def main():
             print(f"  - {name}")
         return
 
-    check_prereqs()
-
     selected = args.task or list(TASKS.keys())
     unknown = [t for t in selected if t not in TASKS]
     if unknown:
@@ -731,6 +738,8 @@ def main():
         for e in TASKS[t][1]:
             if e not in envs_needed:
                 envs_needed.append(e)
+
+    check_prereqs(envs_needed, args.skip_envs)
 
     if not args.skip_envs:
         info("=" * 60)

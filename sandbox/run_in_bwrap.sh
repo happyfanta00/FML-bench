@@ -11,14 +11,16 @@
 #   - output dir          read-write  (default repo/benchmark_results; --output-dir is honoured)
 #   - $FMLBENCH_UV_ENVS   read-only   (harness env "fmlbench" + per-task envs, picked by
 #                                      benchmark.utils.env_command from config.json's conda_env)
-#   - uv-managed CPython  read-only   (the venvs symlink their interpreter here)
+#   - uv-managed CPython  read-only   (the venvs symlink their interpreter here; any other
+#                                      base-interpreter prefix a venv points at is bound too)
 #   - ~/.cache            read-write  (pretrained-weight caches: torch hub, HF, ...)
 #   - /usr, /etc, /sys    read-only;  fresh /proc, /dev, /tmp, /dev/shm and an empty $HOME
-#   - NVIDIA device nodes; CUDA_VISIBLE_DEVICES is passed through (default: all GPUs)
+#   - NVIDIA device nodes; CUDA_VISIBLE_DEVICES is passed through (unset: all GPUs; "" hides them)
 #   - network is shared: Bedrock is reached over HTTPS with the instance-role credentials
 #     from IMDS (a separate network namespace would cut IMDS off)
 # Everything else on the host (other home dirs, ~/.ssh, ~/.aws unless AWS_PROFILE is set,
-# conda, the EFS data outside this repo) is not visible.
+# conda environments, the EFS data outside this repo) is not visible; a base-interpreter prefix
+# such as ~/miniconda3 is mounted read-only only when a venv needs it, and conda is not on PATH.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -73,8 +75,15 @@ args=(
   --setenv PYTHONDONTWRITEBYTECODE 1
   --setenv PYTHONUNBUFFERED 1
   --setenv FMLBENCH_UV_ENVS "$UV_ENVS"
-  --setenv CUDA_VISIBLE_DEVICES "${CUDA_VISIBLE_DEVICES:-$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd,)}"
+  --setenv CUDA_VISIBLE_DEVICES "${CUDA_VISIBLE_DEVICES-$(nvidia-smi --query-gpu=index --format=csv,noheader | paste -sd,)}"
 )
+# A venv whose base interpreter lives outside /usr and the uv store (e.g. privacy_meter, built on
+# miniconda's python3.12) needs that interpreter's prefix too; bind it read-only.
+for cfg in "$UV_ENVS"/*/pyvenv.cfg; do
+  home=$(sed -n 's/^home *= *//p' "$cfg")
+  prefix=$(dirname "$home")
+  [[ $prefix == /usr || $prefix == "$UV_PYTHON"/* ]] || args+=(--ro-bind-try "$prefix" "$prefix")
+done
 for d in /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset /dev/nvidia[0-9]*; do
   [[ -e $d ]] && args+=(--dev-bind "$d" "$d")
 done
