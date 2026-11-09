@@ -1,6 +1,0 @@
-Saved test results to results_tmp/test_info.json
-AUC_gap_mean: 0.3178333333333333, test_acc_mean: 0.61401
-
-real	0m0.157s
-user	0m1.751s
-sys	0m4.803s

@@ -214,7 +214,11 @@ class BenchmarkRunner:
         self._workspace_copy_path = suffixed_base
         try:
             print(f"Preparing workspace: Copying workspace from {template_base} to {suffixed_base}")
-            shutil.copytree(template_base, suffixed_base)
+            # symlinks=True: datasets may be symlinks into a shared cache (setup.py --data-cache),
+            # committed to the task repo as symlinks. Following them would copy the data into
+            # every run and turn a tracked symlink into a directory (git sees a typechange and
+            # `git reset --hard` cannot restore it).
+            shutil.copytree(template_base, suffixed_base, symlinks=True)
         except Exception:
             self.cleanup_workspace()
             raise

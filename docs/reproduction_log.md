@@ -1,111 +1,144 @@
 # FML-bench 复现实验记录
 
-本文档记录在本机上复现 FML-bench 的结果：环境适配、baseline 重测、harness 改造（Bedrock / uv / 沙盒）、agent 测试结果与快照检查（第 5 章），以及从零复现这些结果的完整流程（第 6 章）。
+本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章），以及从零复现这些结果的完整流程（第 6 章）。
 
-- 分支：`repro/bedrock-uv-sandbox`，基于 `d336651`
-- 记录时间：2026-11-02 ～ 2026-11-09（第 8 章为第二台机器 4 × L4 上的复现）
+- 分支：`repro/bedrock-uv-sandbox`，基于上游 `d336651`
+- 记录时间：2026-11-02 ～ 2026-11-09
+- baseline 有两版（第 3 章）：g7e.12xlarge 版是第 5 章 agent 测试用的；g7e.24xlarge 版是仓库当前采用的。第 8 章是 4 × L4 上的对照
 
 ---
 
 ## 1. 机器环境
 
-| 项目 | 值 |
-|---|---|
-| 实例 | AWS EC2 `g7e.12xlarge`（us-west-2） |
-| GPU | 2 × NVIDIA RTX PRO 6000 Blackwell Server Edition（96 GB，sm_120） |
-| 驱动 / CUDA | 580.126.16 / CUDA 13.0 |
-| CPU / 内存 | Intel Xeon Platinum 8559C，48 核 / 499 GB |
-| 系统 | Amazon Linux 2023（kernel 6.1） |
-| 环境管理 | uv 0.11.14（不使用 conda） |
-| 沙盒 | bubblewrap 0.10.0 |
-| LLM | Amazon Bedrock，`us.anthropic.claude-opus-5-5`，凭证来自实例角色 |
+| 用途 | 机器 | GPU | 驱动 / CUDA | CPU / 内存 | 系统 | uv / bwrap |
+|---|---|---|---|---|---|---|
+| **Agent 测试（第 5 章）**、baseline 的 g7e.12xlarge 版 | AWS `g7e.12xlarge`（us-west-2） | 2 × NVIDIA RTX PRO 6000 Blackwell Server Edition（96 GB，sm_120） | 580.126.16 / 13.0 | Intel Xeon Platinum 8559C，48 核 / 499 GB | Amazon Linux 2023，kernel 6.1 | 0.11.14 / 0.10.0 |
+| **baseline 的 g7e.24xlarge 版（仓库采用）**、数据缓存（2.2） | AWS `g7e.24xlarge`（us-east-1） | 4 × 同型号 GPU | 595.112.07 / 13.0 | Intel Xeon Platinum 8559C，96 核 / 999 GB | Amazon Linux 2023，kernel 6.12 | 0.13.7 / 0.12.0 |
+| 其他硬件对照（第 8 章） | 4 × L4 | 4 × NVIDIA L4（24 GB，sm_89） | 595.71.05 / 13.2 | AMD EPYC 7R13，96 核 / 363 GB | Amazon Linux 2023，kernel 6.12 | 0.12.10 / 0.10.0 |
 
-**硬件带来的关键约束**：Blackwell（sm_120）需要 torch ≥ 2.7 + CUDA 12.8。仓库原配置的 torch 2.5.1+cu121、1.12.1+cu113 等版本在这块卡上没有可用的 kernel，统一换成 `torch==2.7.1+cu128`（torchvision 0.22.1、torchaudio 2.7.1）。TF 2.10 无法使用这块 GPU，ART 任务只能在 CPU 上跑。
+- 不使用 conda。LLM 是 Amazon Bedrock 的 `us.anthropic.claude-opus-5-5`，凭证来自实例角色。
+- **硬件约束**：Blackwell（sm_120）需要 torch ≥ 2.7 和 CUDA 12.8。仓库原配置的 torch 2.5.1+cu121、1.12.1+cu113 等版本在这块卡上没有可用的 kernel，因此统一换成 `torch==2.7.1+cu128`（torchvision 0.22.1、torchaudio 2.7.1）。TF 2.10 不能使用这块 GPU，所以 ART 任务只在 CPU 上运行。
 
 ---
 
-## 2. 环境构建（uv）
+## 2. 环境构建（uv）与数据
 
-- 所有环境建在 `~/fml_envs/<env>`（本地 NVMe），可用 `FMLBENCH_UV_ENVS` 改位置；解释器由 uv 管理，位于 `~/.local/share/uv/python`。
-- `setup.py` 新增 `uv_create` / `uv_run`，以下环境已从 conda 迁移到 uv：
+### 2.1 环境
+
+- 环境建在 `~/fml_envs/<env>`，可以用 `FMLBENCH_UV_ENVS` 改位置。解释器由 uv 管理（`UV_PYTHON_PREFERENCE=only-managed`），位于 `~/.local/share/uv/python`。
+- `setup.py` 用 `uv_create` / `uv_run` 建环境，conda 和 pip 只在要建 conda 环境时才需要。
 
 | 环境 | Python | 相对原配置的改动 |
 |---|---|---|
-| fmlbench（harness） | 3.11 | 去掉 conda 的 nodejs（harness 用不到）；`anthropic` 改为 `anthropic[bedrock]==0.84.0`（增加 boto3） |
-| opacus / pycil / usb / openood | 3.10 / 3.10 / 3.10 / 3.9 | torch 2.5.1+cu121 → 2.7.1+cu128 |
-| domainbed | 3.10 | conda pytorch 1.12.1 → pip torch 2.7.1+cu128；去掉 mkl 系列包；`backpack-for-pytorch` 1.3.0 → 1.7.1（1.3.0 要求 torch<2.0，会把 torch 降级）；新增 `huggingface_hub<1.0`（未锁版本时会装到 2.x，timm 0.9.16 用到的接口在 1.x 已移除） |
-| privacy_meter | 3.12 | 从 requirements.txt 中滤掉 torch/nvidia 相关行，单独安装 torch 2.7.1+cu128 |
-| art | 3.10 | 版本不变；TF 2.10.1 在本机只能用 CPU |
+| fmlbench（harness） | 3.11.6 | 去掉 conda 的 nodejs（harness 用不到）；`anthropic` 改为 `anthropic[bedrock]==0.84.0`（多装 boto3）；锁定 `pyarrow<26`（打分时 scikit-learn 要用，见 6.9） |
+| opacus / pycil / usb | 3.10.22 | torch 2.5.1+cu121 → 2.7.1+cu128 |
+| openood | 3.9.25 | torch 2.5.1+cu121 → 2.7.1+cu128 |
+| domainbed | 3.10.22 | conda 的 pytorch 1.12.1 → pip 的 torch 2.7.1+cu128；去掉 mkl 系列包；`backpack-for-pytorch` 1.3.0 → 1.7.1（1.3.0 要求 torch<2.0）；锁定 `huggingface_hub<1.0`（timm 0.9.16 用到的接口在 hub 1.x 中已移除） |
+| privacy_meter | 3.12.16 | 安装 requirements.txt 时滤掉 torch/nvidia 相关行，torch 2.7.1+cu128 单独安装 |
+| art | 3.10.22 | 版本不变；TF 2.10.1 只能用 CPU |
 
-- 其余环境（easyfsl、lightly、continual_learning、causalml、aif360、fairlearn、gcastle、sololearn、pfllib、open_unlearning）仍是 conda 配置，**未迁移、未测试**。
-- 所有已迁移环境都通过了 GPU 计算测试（art 除外，按预期走 CPU）。
+- 6 个 torch 环境都能在 sm_120 和 sm_89 上做 GPU 计算。
+- 三台机器上的包版本只有 pip 自身和 art 的 `google-auth` 有补丁版本差异。g7e.12xlarge 的 domainbed 环境里还多出几个降级 hub 时留下的包：httpx2、httpcore2、tomli、truststore。
+- Python 的补丁版本随 uv 版本略有不同（上表是 g7e.24xlarge 的）。g7e.12xlarge 建环境时没有设 `UV_PYTHON_PREFERENCE=only-managed`，privacy_meter 用的是 miniconda 的 Python 3.12.9（见 4.3）。
+- 其余 10 个非 Lite 任务的环境（easyfsl、lightly、continual_learning、causalml、aif360、fairlearn、gcastle、sololearn、pfllib、open_unlearning）仍是 conda 配置，**没有迁移，也没有测试**。
 
-### 数据
+### 2.2 数据：共享缓存 + 软链
 
-部分官方下载源太慢（多伦多 CIFAR 服务器约 35 KB/s），改用镜像手动下载，并用 torchvision 内置的 md5 校验。下载逻辑**没有**写进 `setup.py`，在新机器上需要手动重复这一步。
+数据在缓存目录 `/mnt/nvme/data/` 下只存一份，用软链接到各任务实际读取的位置：
 
-| 数据 | 来源 | 校验 |
-|---|---|---|
-| CIFAR-10 `cifar-10-python.tar.gz` | Kaggle `pankrzysiu/cifar10-python` | md5 `c58f30108f718f92721af3b95e74349a` |
-| CIFAR-100 `cifar-100-python/` | Kaggle `pypiahmad/cifar-100` | 与 torchvision 逐文件 md5 一致 |
-| SVHN `test_32x32.mat` | Kaggle `khanhvudo72/svhncropped` | md5 `eb5a983be6a315427106f1b164d9cef3` |
-| OfficeHome | `uvx gdown 1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa`（135 MB，含 `office_home_dg/{art,clipart,product,real_world}`） | — |
-| MNIST | torchvision 默认的 S3 镜像 | — |
+```bash
+python3 setup.py --skip-envs --data-cache /mnt/nvme/data --task ...   # 或设 FMLBENCH_DATA_CACHE
+```
 
-缓存在 `~/fml_data_cache/`，放置位置：
+| 缓存条目 | 链接到 | 来源 | 校验 |
+|---|---|---|---|
+| `cifar10/cifar-10-batches-py/`（另有 `cifar-10-python.tar.gz`） | opacus、openood 的 `data/cifar-10-batches-py` | Kaggle `pankrzysiu/cifar10-python` | tar.gz md5 `c58f30108f718f92721af3b95e74349a`；7 个 batch 文件与 torchvision 内置 md5 一致 |
+| `cifar100/cifar-100-python/` | pycil、usb、openood 的 `data/cifar-100-python` | Kaggle `pypiahmad/cifar-100` | train/test/meta 与 torchvision 内置 md5 一致 |
+| `svhn/test_32x32.mat` | openood 的 `data/svhn/test_32x32.mat` | Kaggle `khanhvudo72/svhncropped`（只用 test） | md5 `eb5a983be6a315427106f1b164d9cef3` |
+| `mnist/MNIST/` | `workspace/Generalization_domainbed/data/MNIST` | torchvision 默认的 S3 镜像 | torchvision 下载时自带 md5 校验 |
+| `officehome/office_home/{art,clipart,product,real_world}` | `workspace/Generalization_domainbed_officehome/data/office_home` | `uvx gdown 1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa`（135 MB，15,588 个文件） | — |
+| `privacymeter/cifar10{,_population}.pkl` | privacymeter 的 `data/cifar10{,_population}.pkl` | setup 用缓存里的 CIFAR-10 生成 | — |
+| `art/mnist.npz` | `~/.art/data/mnist.npz`（ART 运行时读取这里） | `https://s3.amazonaws.com/img-datasets/mnist.npz`（和 ART 代码里的 URL 相同） | sha256 `731c5ac602752760c8e48fbffcf8c3b850d9dc2a2aedcf2cc48468fc17b673d1` |
 
-- pycil / usb / openood：`<repo>/data/cifar-100-python`
-- openood：另有 `data/cifar-10-python.tar.gz`、`data/svhn/test_32x32.mat`
-- privacymeter：`data/cifar10/cifar-10-python.tar.gz`（由 setup 生成 pkl）
-- officehome：`workspace/Generalization_domainbed_officehome/data/office_home`
-
-注意：预先放好数据会跳过 setup 里的 git 提交，pycil 和 usb 已手动补上同样的提交（`add cifar-100 dataset for agent benchmark`）。executor 每步都会 `git reset --hard` 到 HEAD，所以数据必须在 HEAD 里。
+- **下载源**：多伦多的 CIFAR 官方源只有 35～50 KB/s，斯坦福的 SVHN 官方源连不上。Kaggle 镜像能达到 90～145 MB/s，而且不需要账号。
+- **缓存条目缺失时**，setup 会自动下载到缓存（用的是 torchvision、gdown 或 curl）。也可以先按上表手动放好，setup 会直接使用。
+- **提交到任务仓库**：`setup.py` 无论数据是下载的、手动放的还是软链，都会执行 `git add -f` 并提交。软链以 symlink 的形式存进 git（mode `120000`），所以 executor 每步执行 `git reset --hard && git clean -fd` 之后数据仍然在，`git status` 也是干净的。重复运行 setup 只会打印 `already links` / `already committed`。domainbed 和 officehome 的数据在任务仓库外面（模板目录 `data/`），不需要提交。
+- **工作区副本**：runner 复制工作区时保留软链（`shutil.copytree(..., symlinks=True)`），数据不会被复制。
+- **沙盒**：会把 `FMLBENCH_DATA_CACHE`，以及任务模板里所有绝对路径软链的目标，**只读**挂载进去，agent 生成的代码改不了共享数据。沙盒里的 `$HOME` 是空的，所以 ART 的 `mnist.npz` 会在每次运行时从 S3 下载（11 MB）。
+- **权限**：缓存设为 `chmod -R a-w`。所有 baseline 代码都只读数据（torchvision 的 `download=True` 校验通过后不会写文件）。
+- officehome 第一次运行时会把 ResNet-50 预训练权重下载到 `~/.cache`（沙盒里这个目录可写）。
+- `/mnt/nvme` 是实例存储，实例停止后数据会丢失。在同样的路径下重新放好数据，或者重新运行一次带 `--data-cache` 的 setup 即可恢复，工作区里的软链和提交不受影响。
+- **g7e.12xlarge（第 5 章）没有用缓存**：数据从上表同样的镜像下载到 `~/fml_data_cache/`，以实体文件复制进各工作区，再提交到任务仓库（pycil 和 usb 是手动用 `git add -f` 提交的）。两种放法对任务代码没有区别。
 
 ---
 
-## 3. Baseline 重测（FML-bench-Lite，8 个任务）
+## 3. Baseline（FML-bench-Lite，8 个任务）
 
-### 方法
+baseline 在两台同型号 Blackwell 机器上各测了一次。g7e.12xlarge 版先测，第 5 章的 agent 测试用的就是这一版；之后在 g7e.24xlarge 上让每个任务单独占一张卡重测，仓库现在采用这一版。
 
-按各任务 `config.json` 的 `val_command` → `test_command` 手动执行（同一份工作区副本，test 会复用 val 保存的模型），环境为对应的 uv 环境：
+### 3.1 方法
+
+- 按各任务 `config.json` 里的 `val_command` → `test_command` 顺序执行，两者用同一份工作区副本（test 复用 val 保存的模型；pycil 的 test 会重新训练），在对应的 uv 环境里运行。
+- **g7e.12xlarge 版**：用 `scripts/reproduction/rebaseline_task.sh` 逐个任务手动启动，有的任务同时运行（openood 和 usb 共用一张卡；pycil、domainbed 和 ART 有一段时间同时运行）。结果在该机的 `rebaseline_results/<TASK>/`，工作区副本保留为 `workspace/<TASK>__rebaseline_<时间戳>`。
+- **g7e.24xlarge 版**：用 `scripts/reproduction/rebaseline_queue.sh`，每张 GPU 一个串行队列，**同一张卡上同时只有一个任务**。ART（只用 CPU）等所有 GPU 任务结束后单独运行，因为 TF 会占满所有 CPU。同时用 `nvidia-smi dmon` 每 5 秒采样一次。分配：GPU0 跑 pycil；GPU1 跑 officehome → opacus；GPU2 跑 usb → domainbed；GPU3 跑 openood → privacymeter；最后在 CPU 上跑 ART。全部共 21.5 分钟。结果在该机的 `rebaseline_results/<TASK>__g7e24/`。
 
 ```bash
-scripts/reproduction/rebaseline_task.sh <TASK> <GPU编号，CPU 填 ""> [TAG]
-python3 scripts/reproduction/compare_baseline.py <TASK>
+scripts/reproduction/rebaseline_task.sh <TASK> <GPU编号，CPU 填 ""> [TAG]        # g7e.12xlarge 版
+scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline __g7e24   # g7e.24xlarge 版
 ```
 
-结果写入 `rebaseline_results/<TASK>/`（val/test 结果、日志、`run_info.txt`、`pip_freeze.txt`），工作区副本保留为 `workspace/<TASK>__rebaseline_<时间戳>`。
+### 3.2 结果
 
-### 结果（原始 → 本机）
+| 任务 | 指标（方向） | val：原始 / 12xlarge / **24xlarge** | test：原始 / 12xlarge / **24xlarge** | 耗时 val / test（12xlarge；24xlarge 单卡） | 24xlarge GPU 平均 SM / 显存带宽 / 功耗 | 与原始值相比 |
+|---|---|---|---|---|---|---|
+| Privacy_opacus | test_acc_mean（↑） | 0.5894 / 0.5881 / **0.5881** | 0.5877 / 0.5870 / **0.5870** | 1m10s / 5s；1m21s / 5s | 11% / 7% / 107 W | 一致 |
+| Continual_Learning_pycil | avg_incremental_acc_mean（↑） | 0.5911 / 0.5925 / **0.5925** | 0.5952 / 0.5944 / **0.5944** | 8m54s / 8m09s；8m48s / 8m31s | 42% / 6% / 190 W | 一致 |
+| Privacy_privacymeter | AUC_gap_mean（↓） | 0.3339 / 0.3242 / **0.3278** | 0.3214 / 0.3182 / **0.3187** | 6m15s / 1s；6m08s / <1s | 70% / 32% / 325 W | 一致 |
+| Robustness_openood | auroc_mean（↑） | 0.8758 / 0.8804 / **0.8708** | 0.9302 / 0.9212 / **0.9028** | 10m25s / 8s；6m56s / 7s | 86% / 38% / 374 W | 接近（任务本身不确定，见 3.3） |
+| Data_Efficiency_usb | test_acc_mean（↑） | 0.0757 / 0.0827 / **0.0827** | 0.0790 / 0.0861 / **0.0861** | 11m11s / 5s；9m02s / 5s | 33% / 9% / 173 W | 接近（原始值本身只有约 8%） |
+| Generalization_domainbed_officehome | avg_acc_mean（↑） | 0.8832 / 0.9011 / **0.9011** | 0.8629 / 0.8570 / **0.8570** | 10m55s / <1s；10m38s / <1s | 74% / 55% / 318 W | 接近（相差 2 个点以内） |
+| Generalization_domainbed（ColoredMNIST） | in_acc_mean（↑） | 0.2792 / 0.2393 / **0.2393** | 0.2868 / 0.2501 / **0.2501** | 3m32s / <1s；1m45s / <1s | 25% / 2% / 158 W | **偏低约 0.04** |
+| Robustness_and_Reliability_art（CPU） | defense_score_mean（↑） | 0.4720 / 0.3005 / **0.2893** | 0.4774 / 0.2921 / **0.2838** | 4m51s / 7s；4m06s / 5s | — | **明显偏低** |
 
-| 任务 | 指标（方向） | val | test | 耗时（val/test） | 结论 |
-|---|---|---|---|---|---|
-| Privacy_opacus | test_acc_mean（↑） | 0.5894 → 0.5881 | 0.5877 → 0.5870 | 1m10s / 5s | 一致 |
-| Continual_Learning_pycil | avg_incremental_acc_mean（↑） | 0.5911 → 0.5925 | 0.5952 → 0.5944 | 8m54s / 8m09s | 一致 |
-| Privacy_privacymeter | AUC_gap_mean（↓） | 0.3339 → 0.3242 | 0.3214 → 0.3182 | 6m15s / 1s | 一致 |
-| Robustness_openood | auroc_mean（↑） | 0.8758 → 0.8804 | 0.9302 → 0.9212 | 10m25s / 8s | 接近 |
-| Data_Efficiency_usb | test_acc_mean（↑） | 0.0757 → 0.0827 | 0.0790 → 0.0861 | 11m11s / 5s | 接近（原值本身约 8%） |
-| Generalization_domainbed_officehome | avg_acc_mean（↑） | 0.8832 → 0.9011 | 0.8629 → 0.8570 | 10m55s / <1s | 接近（±2 点内） |
-| Generalization_domainbed（ColoredMNIST） | in_acc_mean（↑） | 0.2792 → 0.2393 | 0.2868 → 0.2501 | 3m32s / <1s | **偏低约 0.04** |
-| Robustness_and_Reliability_art（CPU） | defense_score_mean（↑） | 0.4720 → 0.3005 | 0.4774 → 0.2921 | 4m51s / 7s | **明显偏低** |
+- g7e.24xlarge 的耗时是单独占一张卡时测的（4 个 GPU 任务仍然共用 96 核的 CPU），包含 officehome 第一次运行时下载预训练权重的几秒。g7e.12xlarge 的耗时里有并发的影响。
+- 按 GPU 利用率，任务分两类：
+  - 受 GPU 算力限制：officehome、openood、privacymeter；
+  - 受 CPU、数据加载或 Python 开销限制：pycil、usb、domainbed、opacus。
+- domainbed 对 CPU 竞争很敏感，和占满 CPU 的 ART 同时运行时，耗时会翻倍（g7e.12xlarge 的 3m32s 就是这样来的）。
 
-pycil 的 test 阶段会重新训练；其他任务的 test 加载 val 保存的模型。
+### 3.3 两版的区别
 
-### 偏差分析
+- **条件**：GPU 和 CPU 型号相同，环境的包版本相同（2.1）。不同的是驱动（580 对 595）、kernel（6.1 对 6.12）、CPU 核数（48 对 96），以及测量方式（g7e.12xlarge 上有任务同时运行，g7e.24xlarge 上每卡只有一个任务）。
+- **结果**：
+  - pycil、usb、officehome、domainbed 的 val/test 结果文件逐字节相同；opacus 只有 ε 在第 15 位有效数字上不同。
+  - 只有 3 个任务的指标不同，差距都不超过 0.02，原因都是任务本身的不确定性：
 
-- **domainbed** 和 **ART** 都在同一环境下重跑了一次（`rebaseline_results/<TASK>__rerun2/`），结果与第一次完全一致，说明差距不是随机波动，而是环境差异造成的。
-- **domainbed**：最可能的原因是 torch 版本变化（2.7.1+cu128 对比原来的 1.12.1）。ColoredMNIST 留出的 env2 是对抗性的域，训练过程中精度在 0.18～0.30 之间跳动，对数值差异非常敏感。
-- **ART**：DP-InstaHide 训练 5 个 epoch，种子全部固定。差距集中在部分后门上（attack success：random_corner 0.84 对比原来的 0.30，edge 0.90 对比 0.75），clean_acc 反而更高（0.956 对比 0.944）。最可能的原因是原 baseline 在 GPU 上训练，而本机只能用 CPU，但原始文件里没有硬件信息，无法确认。原始文件之间本身也不一致（`final_info.json` 的 num_samples 是 7500，`val_info.json` 是 8404，另有一个旧版 `final_info.old.json` 的 defense 是 0.6966），可能出自不同版本的代码。
-- **officehome** 第一次运行在 10 秒内失败（timm 依赖的 `huggingface_hub` 被装成了 2.x），锁定 `<1.0` 后重跑成功。
+  | 任务 | val：12xlarge → 24xlarge | test：12xlarge → 24xlarge | 原因 |
+  |---|---|---|---|
+  | openood | 0.8804 → 0.8708 | 0.9212 → 0.9028 | 训练脚本只设了随机种子，没有设 `cudnn.deterministic`。g7e.24xlarge 同一张卡单独重跑一次，得到 val 0.8764、test 0.9099。val 的噪声范围约为 0.871～0.880，test 约为 0.903～0.921，两版都在范围内 |
+  | privacymeter | 0.3242 → 0.3278 | 0.3182 → 0.3187 | 开了 `cudnn.benchmark`，卷积算法的选择不固定，多次运行会相差约 0.004 |
+  | ART | 0.3005 → 0.2893 | 0.2921 → 0.2838 | 同型号 CPU 上相差约 0.01。在 g7e.24xlarge 上把 CPU 限制为 48 个（`taskset -c 0-47`）后结果逐字节不变，所以**不是线程数造成的**，原因不明。同一台机器上重跑结果完全相同 |
 
-### 采用
+- **对 NI 的影响**：只有这 3 个任务的 NI 会变。ai_scientist_v2 的 Lite 平均 NI 用 g7e.12xlarge 版是 0.2812，用 g7e.24xlarge 版是 0.2846（5.1）。
 
-按决定，**以本机重测结果作为新的 baseline**：
+### 3.4 与原始值的偏差
 
-- `ml_tasks/<TASK>/baseline_results/{val,test}_info.json` 替换为重测结果；
-- 仓库原有的文件（包括 `final_info.json`）移到 `ml_tasks/<TASK>/baseline_results/original/`。
+- **domainbed** 对 GPU 架构敏感。
+  - 在两台 Blackwell 上都是 0.2393，L4 上是 0.2626（同样是 torch 2.7.1），原始值是 0.2792（torch 1.12.1）。每台机器上的结果都是确定性的（g7e.12xlarge 上重跑一次完全相同，见 `rebaseline_results/<TASK>__rerun2/`）。
+  - ColoredMNIST 留出的 env2 是对抗性的域，训练过程中它的精度在约 0.10～0.30 之间跳动，对数值上的微小差异非常敏感。
+- **ART**：DP-InstaHide 训练 5 个 epoch，种子全部固定。
+  - 与原始值的差距集中在部分后门上。攻击成功率（poison_acc）：random_corner 0.84 对原始 0.30，edge 0.90 对 0.75。clean_acc 反而更高（0.955 对 0.944）。
+  - 最可能的原因是原 baseline 在 GPU 上训练，或者出自另一个版本的代码。原始文件之间本身也不一致：`final_info.json` 的 num_samples 是 7500，`val_info.json` 是 8404，另一个旧版 `final_info.old.json` 的 defense_score 是 0.6966。
+  - AMD CPU 的 L4 机器上是 0.2913，和两版 Blackwell 都接近，离原始值都很远。
+- **officehome** 第一次在 g7e.12xlarge 上运行时 10 秒内就失败了（timm 依赖的 `huggingface_hub` 被装成了 2.x），锁定 `<1.0` 后重跑成功。
 
-runner 读 `val_info.json` 作为 agent 提示词里的 baseline，`compute_agent_metrics.py` 读 `val_info.json` / `test_info.json`，两者现在都用新值。
+### 3.5 采用
+
+| 文件 | 内容 | 谁在用 |
+|---|---|---|
+| `ml_tasks/<TASK>/baseline_results/{val,test}_info.json` | **g7e.24xlarge 版** | runner 读 `val_info.json` 作为 agent 提示词里的 baseline，`compute_agent_metrics.py` 读 `val_info.json` 和 `test_info.json`。之后新启动的测试都用这一版 |
+| `ml_tasks/<TASK>/baseline_results/g7e12xlarge/` | g7e.12xlarge 版 | 第 5 章两次正式测试都在 g7e.12xlarge 的工作目录里运行，提示词里用的都是这一版。5.1 表中的 baseline 列和 NI 主列也用这一版 |
+| `ml_tasks/<TASK>/baseline_results/original/` | 仓库原有的文件（包括 `final_info.json`） | 5.1 表的"原始 baseline"列 |
 
 ---
 
@@ -113,44 +146,48 @@ runner 读 `val_info.json` 作为 agent 提示词里的 baseline，`compute_agen
 
 ### 4.1 Bedrock 接入 Opus 5.5
 
-- 用法：`--provider AnthropicBedrock --model us.anthropic.claude-opus-5-5`；区域取 `AWS_REGION`（默认 us-west-2），凭证走 AWS 默认链（本机为实例角色）。
-- 调用 LLM 的只有两处，都已加上 Claude 原生分支：
-  - `agents/llm.py`：新增 `AnthropicBedrock` provider，以及 `claude_messages_create` / `claude_response_text` / `is_anthropic_client`。`get_response_from_llm` 的 Claude 分支改用这些函数；多轮历史保留完整的 assistant 内容（含 thinking 块），原样回传。
-  - `agents/code_editor.py`：遇到 Anthropic 客户端时走 Messages API，否则维持原来的 `chat.completions`。
+- 用法：`--provider AnthropicBedrock --model us.anthropic.claude-opus-5-5`。区域取 `AWS_REGION`（默认 us-west-2），凭证走 AWS 的默认链。
+- 调用 LLM 的只有两处，都加了 Claude 原生分支：
+  - `agents/llm.py`：新增 `AnthropicBedrock` provider，以及 `claude_messages_create` / `claude_response_text` / `is_anthropic_client`。`get_response_from_llm` 的 Claude 分支改用这几个函数；多轮对话的历史保留完整的 assistant 内容（含 thinking 块），原样回传。
+  - `agents/code_editor.py`：遇到 Anthropic 客户端时走 Messages API，其他情况仍用 `chat.completions`。
 - 请求参数：
-  - 流式输出，`max_tokens=64000`。Opus 5.5 的思考无法关闭且计入 max_tokens，原来的 8192 容易截断；上限调大之后 SDK 要求用流式，否则可能超过 HTTP 超时。
-  - 不传 temperature（Opus 5.5 不接受）。
-  - `output_config.effort` 默认 `high`，可用 `FMLBENCH_CLAUDE_EFFORT` 调整。
+  - 流式输出，`max_tokens=64000`。Opus 5.5 的思考无法关闭，而且计入 max_tokens；上限调大之后 SDK 要求使用流式，否则可能超过 HTTP 超时。
+  - 不传 temperature（Opus 5.5 不接受这个参数）。
+  - `output_config.effort` 默认为 `high`，可以用 `FMLBENCH_CLAUDE_EFFORT` 调整。
   - 客户端 `max_retries=8`。
-- 拒答（`stop_reason == "refusal"`）直接抛错，**不**自动换到其他模型，以免评测结果里混入别的模型。
-- 修复：原来 Claude 响应的 token 用量统计为 0，现在 `extract_usage_info` 能正确读取 `input_tokens` / `output_tokens`（含缓存部分）。
-- SDK 仍为 0.84.0。Bedrock Mantle 端点在本账号下对该模型返回 404，因此走的是 bedrock-runtime（`anthropic.AnthropicBedrock`）。
+- 遇到拒答（`stop_reason == "refusal"`）直接抛错，**不会**自动换别的模型，以免评测结果里混入其他模型。
+- `extract_usage_info` 能正确读取 Claude 响应的 `input_tokens` / `output_tokens`（含缓存部分）。
+- SDK 版本为 0.84.0，走 bedrock-runtime（`anthropic.AnthropicBedrock`）。Bedrock Mantle 端点在本账号下对这个模型返回 404。
 
 ### 4.2 运行入口适配 uv 环境
 
-- `benchmark/utils.py` 新增 `env_command(env_name, args)`：若 `~/fml_envs/<conda_env>/bin/python` 存在，就设置 `VIRTUAL_ENV`、把该环境放到 PATH 最前面后直接执行；否则退回 `conda run`。
+- `benchmark/utils.py::env_command(env_name, args)`：如果 `~/fml_envs/<conda_env>/bin/python` 存在，就设置 `VIRTUAL_ENV`，把该环境放到 PATH 最前面后直接执行；否则退回 `conda run`。
 - 调用方：`benchmark/executor.py::_run_command`（val/test 命令）和 `agents/theaiscientist/theaiscientist.py`（setup 命令）。config.json 的字段名 `conda_env` 保持不变。
-- `_run_command` 在每条命令结束时输出 `Command finished in X s (returncode N)`，用于事后统计每步的实际耗时。超时时仍输出原有的 `Command timed out after N seconds`。
+- `_run_command` 在每条命令结束时输出 `Command finished in X s (returncode N)`，超时时输出 `Command timed out after N seconds`。
+- `benchmark/runner.py` 复制工作区时保留软链（2.2）。
 
 ### 4.3 沙盒：`sandbox/run_in_bwrap.sh`
 
 ```bash
 CUDA_VISIBLE_DEVICES=0 sandbox/run_in_bwrap.sh <run_agent_benchmark.py 的参数...>
-sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或执行单条命令
+sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell 或执行单条命令
 ```
 
 | 可见性 | 内容 |
 |---|---|
-| 只读 | 仓库（agents/、benchmark/、ml_tasks/、configs/…）、`~/fml_envs`、uv 的 Python、`/usr`、`/etc`、`/sys` |
-| 可写 | `workspace/`、输出目录（默认 `benchmark_results/`，`--output-dir` 会被识别）、`~/.cache` |
-| 不可见 | 宿主 home 的其余部分（包括 `~/.ssh`、`~/.aws`，除非设置了 `AWS_PROFILE`）、EFS 上的其他数据、conda |
-| 设备 | NVIDIA 设备节点全部透传。`CUDA_VISIBLE_DEVICES` 原样传入：不设置表示所有 GPU，设为空字符串表示不给 GPU（ART 就这样运行） |
-| 解释器 | 如果某个环境的基础解释器既不在 `/usr` 也不在 uv 的 Python 目录里（本机的 privacy_meter 用的是 `~/miniconda3` 的 Python 3.12.9），就把它所在的前缀目录只读挂载进来。conda 不在 PATH 上 |
-| 隔离 | user/pid/ipc/uts/cgroup 命名空间独立，`--clearenv`，`--new-session`，`--die-with-parent` |
+| 只读 | 仓库（agents/、benchmark/、ml_tasks/、configs/…）、`~/fml_envs`、uv 的 Python、`/usr`、`/etc`、`/sys`、数据缓存（`FMLBENCH_DATA_CACHE` 和任务模板里绝对路径软链的目标） |
+| 可写 | `workspace/`、输出目录（默认 `benchmark_results/`，能识别 `--output-dir`）、`~/.cache` |
+| 不可见 | 宿主 home 的其余部分（包括 `~/.ssh`；`~/.aws` 只在设置了 `AWS_PROFILE` 时可见）、其他数据、conda |
+| 设备 | 透传所有 NVIDIA 设备节点。`CUDA_VISIBLE_DEVICES` 原样传入：不设置表示所有 GPU，空字符串表示不给 GPU（ART 就这样运行） |
+| 解释器 | 某个环境的基础解释器如果既不在 `/usr`，也不在 uv 的 Python 目录里（g7e.12xlarge 上的 privacy_meter 用的是 `~/miniconda3` 的 Python 3.12.9），就把它所在的前缀目录只读挂载进来。conda 不在 PATH 上 |
+| 隔离 | user/pid/ipc/uts/cgroup 命名空间独立，`--clearenv`、`--new-session`、`--die-with-parent` |
 
 - **网络与宿主共享**。隔离网络会断掉 IMDS，Bedrock 就拿不到实例角色的凭证；代价是 agent 生成的代码也能访问外网。
-- `/etc/resolv.conf` 指向 `/run/systemd/resolve/`，因此只读挂载了这一个目录。
-- 已验证：ml_tasks 和 agents 不可写、workspace 可写、`~/.ssh` 不可见；在 opacus 环境里能做 GPU 计算；Bedrock 调用、DNS、HTTPS 都正常。
+- `/etc/resolv.conf` 指向 `/run/systemd/resolve/`，所以只读挂载了这个目录。
+- 已验证：
+  - ml_tasks、agents 和数据缓存不可写，workspace 可写，`~/.ssh` 不可见；
+  - 能做 GPU 计算，`CUDA_VISIBLE_DEVICES=""` 时没有 GPU；
+  - Bedrock 调用、DNS、HTTPS 都正常。
 
 ---
 
@@ -163,33 +200,36 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或�
 - agent：ai_scientist_v2，参数用 `configs/agents/ai_scientist_v2.yaml` 的默认值。
 - 模型：Bedrock `us.anthropic.claude-opus-5-5`。
 - 每个任务跑 100 步，全部在沙盒（4.3）中运行。
-- baseline：本机重测值（第 3 章）。
+- 机器：g7e.12xlarge（第 1 章）。
+- baseline：**g7e.12xlarge 版**（3.5）。提示词里用的是这一版，下表的 baseline 列和 NI 主列也用这一版。
 - 超时：opacus 用默认的 2400 秒；其余 7 个任务每两个共用一张卡，用 4800 秒。按 2400 秒的标准协议，只有 privacymeter 的 1 步会超时，而且不是最佳步，不影响结果。
 - 运行时间：2026-11-02 ～ 11-05。复现方法见第 6 章。
 - **已知问题**：ai_scientist_v2 的想法生成没有运行。`_generate_ideas` 找不到 `ml_tasks/<TASK>/theaiscientist/seed_ideas.json` 就直接跳过，而所有任务都没有这个文件。按决定没有修复，所以结果相当于纯树搜索。
 
 **结果**（NI 的定义和计算方法见 6.9）
 
-| 任务 | 指标 | baseline val / test | agent 最佳 val（被测步） | agent test | **NI** | NI（原始 baseline） |
-|---|---|---|---|---|---|---|
-| pycil | avg_incremental_acc ↑ | 0.5925 / 0.5944 | 0.7562（89） | 0.7571 | **0.1627** | 0.1619 |
-| usb | test_acc ↑ | 0.0827 / 0.0861 | 0.1677（64） | 0.1724 | **0.0863** | 0.0934 |
-| domainbed（ColoredMNIST） | in_acc ↑ | 0.2393 / 0.2501 | 0.7404（79） | 0.7527 | **0.5026** | 0.4658 |
-| officehome | avg_acc ↑ | 0.9011 / 0.8570 | 0.9203（17） | 0.8782 | **0.0212** | 0.0153 |
-| openood | auroc ↑ | 0.8804 / 0.9212 | 0.9204（55） | 0.9928 | **0.0716** | 0.0626 |
-| opacus | test_acc ↑ | 0.5881 / 0.5870 | 0.6911（88） | 0.6752 | **0.0882** | 0.0875 |
-| privacymeter | AUC_gap ↓ | 0.3242 / 0.3182 | 0.0011（57） | 0.0008 | **0.6347** | 0.6411 |
-| ART | defense_score ↑ | 0.3005 / 0.2921 | 0.9755（21） | 0.9740 | **0.6820** | 0.4966 |
-| **MEAN（Lite）** | | | | | **0.2812** | 0.2530 |
+| 任务 | 指标 | baseline val / test（g7e.12xlarge 版） | agent 最佳 val（被测步） | agent test | **NI（g7e.12xlarge 版）** | NI（g7e.24xlarge 版） | NI（原始 baseline） |
+|---|---|---|---|---|---|---|---|
+| pycil | avg_incremental_acc ↑ | 0.5925 / 0.5944 | 0.7562（89） | 0.7571 | **0.1627** | 0.1627 | 0.1619 |
+| usb | test_acc ↑ | 0.0827 / 0.0861 | 0.1677（64） | 0.1724 | **0.0863** | 0.0863 | 0.0934 |
+| domainbed（ColoredMNIST） | in_acc ↑ | 0.2393 / 0.2501 | 0.7404（79） | 0.7527 | **0.5026** | 0.5026 | 0.4658 |
+| officehome | avg_acc ↑ | 0.9011 / 0.8570 | 0.9203（17） | 0.8782 | **0.0212** | 0.0212 | 0.0153 |
+| openood | auroc ↑ | 0.8804 / 0.9212 | 0.9204（55） | 0.9928 | **0.0716** | 0.0900 | 0.0626 |
+| opacus | test_acc ↑ | 0.5881 / 0.5870 | 0.6911（88） | 0.6752 | **0.0882** | 0.0882 | 0.0875 |
+| privacymeter | AUC_gap ↓ | 0.3242 / 0.3182 | 0.0011（57） | 0.0008 | **0.6347** | 0.6357 | 0.6411 |
+| ART | defense_score ↑ | 0.3005 / 0.2921 | 0.9755（21） | 0.9740 | **0.6820** | 0.6903 | 0.4966 |
+| **MEAN（Lite）** | | | | | **0.2812** | 0.2846 | 0.2530 |
 
 - **被测步**：最终 test 用的是最早达到最佳 val 的那一步的代码。val 相同时不替换：同一阶段内取第一个最大值，跨阶段时必须严格更好。
-- **原始 baseline 对照**：改用仓库原始的 baseline（`baseline_results/original/`）后，均值降到 0.253。差距主要来自 ART：本机 baseline 是 0.29，原始的是 0.48（第 3 章）。
+- **换 baseline 的影响**：
+  - 换成仓库现在采用的 g7e.24xlarge 版，只有 openood、privacymeter、ART 的 baseline 略低一些（3.3），这 3 个任务的 NI 略升，均值为 0.2846。
+  - 换成仓库原始的 baseline（`baseline_results/original/`），均值降到 0.253。差距主要来自 ART：重测的 baseline 约 0.29，原始的是 0.48（3.4）。
 - **约束都满足**：
   - privacymeter 的两个 TPR 都是 0，test 准确率 0.7515；
   - opacus 的 ε 是 7.9997，在 8 的预算内。
 - **openood 的 test 高于 val**：这是任务设计如此，val 用 CIFAR-100 当 OOD 数据，test 用 SVHN。
-- **除去不能代表通用能力的任务**（见 5.2）：去掉利用题目先验的 domainbed，其余 7 个任务的平均 NI 约为 0.25；再去掉利用评测弱点的 privacymeter，约为 0.19。
-- **完整表格**：三张表（原始指标、NI、过程指标）的 CSV 在 `metric_reports/ai_scientist_v2_opus55_lite/`。结果目录是 `benchmark_results/ai_scientist_v2/<Task>/`，每个任务有一个主运行目录（含 `summary.json` 和 `step_snapshots/`）和一个 `*_final_test` 目录。
+- **除去不能代表通用能力的任务**（见 5.2，按 g7e.12xlarge 版）：去掉利用题目先验的 domainbed，其余 7 个任务的平均 NI 约为 0.25；再去掉利用评测弱点的 privacymeter，约为 0.19。
+- **完整表格**：三张表（原始指标、NI、过程指标）的 CSV 在 g7e.12xlarge 的 `metric_reports/ai_scientist_v2_opus55_lite/`，当时顶层的 baseline 文件还是 g7e.12xlarge 版，所以 CSV 里的 NI 就是主列。结果目录是 `benchmark_results/ai_scientist_v2/<Task>/`，每个任务有一个主运行目录（含 `summary.json` 和 `step_snapshots/`）和一个 `*_final_test` 目录。
 
 ### 5.2 快照检查
 
@@ -229,7 +269,7 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或�
 
 ### 5.3 autoresearch × FML-bench-Lite × Opus 5.5（进行中）
 
-**设置**：和 5.1 相同，只是把 agent 换成 autoresearch（`configs/agents/autoresearch.yaml`），8 个任务的超时都用 4800 秒。2026-11-06 启动，结果待补。
+**设置**：和 5.1 相同（g7e.12xlarge，g7e.12xlarge 版 baseline），只是把 agent 换成 autoresearch（`configs/agents/autoresearch.yaml`），8 个任务的超时都用 4800 秒。2026-11-06 启动，结果待补。
 
 **autoresearch 怎么工作**（Karpathy 的贪心爬山协议）：
 - 每一步由 LLM 根据当前最好的代码和历史实验表提出一个想法，改代码后跑 val。
@@ -240,7 +280,7 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或�
 
 ## 6. 复现全流程
 
-以下步骤从一台新机器开始，复现第 3 章的 baseline 和第 5 章的结果，最后算出 Normalized Improvement。6.1～6.7 已于 2026-11-03 在第二台机器（4 × L4）上完整走过一遍，见第 8 章。
+以下步骤从一台新机器开始，复现第 3 章的 baseline 和第 5 章的结果，最后算出 Normalized Improvement。2026-11-03 在 4 × L4 上从建环境到冒烟测试完整走过一遍（第 8 章，当时数据是复制来的，没有用缓存）；6.4 的数据缓存和 6.5 的 `rebaseline_queue.sh` 在 g7e.24xlarge 上走过（第 2、3 章）。
 
 ### 6.1 前提条件
 
@@ -248,9 +288,10 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或�
 |---|---|
 | 系统 | Linux x86_64，内核允许非特权用户命名空间（bubblewrap 需要） |
 | GPU | NVIDIA，驱动需支持 CUDA 12.8。所有环境都是 torch 2.7.1+cu128，带 sm_75～sm_120 的 kernel，L4（sm_89）实测可用。下面的命令按 2 张卡分配，单卡峰值约 15 GB。**GPU 比 Blackwell 慢很多时要加大超时**：L4 上 officehome 的 baseline 单步就要 50 分钟（第 8 章） |
-| 命令 | `git`、`wget`、`unzip`、`curl`、`uv`、`bwrap`、`nvidia-smi`、`python3`。`conda` 和 `pip` 只在要建 conda 环境时才需要，Lite 的 8 个任务都不需要 |
+| 命令 | `git`、`wget`、`unzip`、`curl`、`uv`、`bwrap`、`nvidia-smi`、`python3`。Amazon Linux 2023 用 `sudo dnf install bubblewrap` 安装 bwrap。`conda` 和 `pip` 只在要建 conda 环境时才需要，Lite 的 8 个任务都不需要 |
 | AWS | 能在 us-west-2（或 `AWS_REGION` 指定的区域）用 Bedrock 调用 `us.anthropic.claude-opus-5-5`，需要 InvokeModel / InvokeModelWithResponseStream 权限 |
 | AWS 凭证 | 三选一：EC2 实例角色（沙盒共享网络，能访问 IMDS）；`AWS_PROFILE`（沙盒会只读挂载 `~/.aws`）；`AWS_ACCESS_KEY_ID` 等环境变量（沙盒会传入） |
+| 网络 | 数据从 Kaggle 镜像下载（2.2），多伦多和斯坦福的官方源太慢或连不上 |
 | 时间和费用 | 正式测试（6.8）在两张 Blackwell 上约 50 小时，ai_scientist_v2 共约 2530 万 token，按官方价格（输入 $4、输出 $20 每百万 token）估算约 $210，以 Bedrock 账单为准。冒烟测试（6.7）约 1.5 小时，约 50 万 token |
 
 ### 6.2 获取代码
@@ -260,12 +301,7 @@ git clone <仓库地址> FML-bench && cd FML-bench
 git checkout repro/bedrock-uv-sandbox
 ```
 
-复现所需的改动都已提交到这个分支：harness、沙盒、复现脚本和新 baseline（`83030f4`、`6ff6b53`、`74ff570`），以及之后的这些改动：
-
-- `compute_agent_metrics.py`：`--lite` 和 `--tasks`，6.9 只给 Lite 打分时要用；
-- `setup.py`：`'pyarrow<26'`。缺了它，打分时 scikit-learn 导入失败；
-- `scripts/reproduction/run_lite_queue.sh`：`AGENT` 和 `QUEUE_SLOTS`，6.8 要用；
-- `README.md` 和本文档。
+复现所需的代码、沙盒、脚本和 baseline 都在这个分支上。运行产物（日志、结果、打分表）不在版本库里，见附录。
 
 ### 6.3 构建环境
 
@@ -279,45 +315,61 @@ python3 setup.py --skip-data \
 ```
 
 - 这条命令同时建好 harness 环境 `fmlbench`，6.9 打分要用它。
-- `UV_PYTHON_PREFERENCE=only-managed` 是 uv 自带的环境变量，不需要改 `setup.py`。本机建环境时没有设置它，所以 privacy_meter 用到了 miniconda 的 Python 3.12.9；设置后会用 uv 管理的 3.12.x，补丁版本可能不同。即使没设，沙盒的解释器挂载（4.3）也能处理这种情况。
-- 环境建在本地盘上即可，本机是 NVMe 上的 `~/fml_envs`。
+- `UV_PYTHON_PREFERENCE=only-managed` 是 uv 自带的环境变量，不需要改 `setup.py`。g7e.12xlarge 建环境时没有设置它，所以 privacy_meter 用到了 miniconda 的 Python 3.12.9；设置后会用 uv 管理的 3.12.x，补丁版本可能不同。即使没设，沙盒的解释器挂载（4.3）也能处理这种情况。
+- 环境建在本地盘上即可。g7e.24xlarge 上约 6 分钟。
 
 ### 6.4 准备数据
 
-两种方式选一种：
+1. 按 2.2 的来源把数据下载到缓存目录（例如 `/mnt/nvme/data/`）。压缩包要放在单独的下载目录里，解压出缓存布局，然后对照 2.2 校验 md5/sha256：
 
-- **官方源**：直接运行上面的 `setup.py` 命令，但去掉 `--skip-data`。本机实测多伦多 CIFAR 服务器只有约 35 KB/s。
-- **镜像**：按第 2 章「数据」中的来源下载，放到对应位置，然后运行一次不带 `--skip-data` 的 `setup.py`。它会跳过已有的数据，完成后续处理（比如生成 privacymeter 的 pkl）。之后：
-  - pycil 和 usb 需要**手动提交数据**。预先放好数据会跳过 setup 里的提交步骤，而 executor 每步都会运行 `git reset --hard` 加 `git clean -fd`：
-    ```bash
-    for r in workspace/Continual_Learning_pycil/PyCIL workspace/Data_Efficiency_usb/Semi-supervised-learning; do
-      git -C $r add -f data && git -C $r commit -m "add cifar-100 dataset for agent benchmark"
-    done
-    ```
-    `data/` 在这两个仓库的 `.gitignore` 里，必须用 `add -f`（和 `setup.py` 的 `git_commit_data` 一致）。可以用 `git -C $r ls-files data | wc -l` 确认数据确实进了仓库。
+   ```bash
+   C=/mnt/nvme/data; D=$C/_downloads; mkdir -p $D $C/cifar10 $C/cifar100 $C/svhn $C/officehome $C/art
+   curl -sL -o $D/cifar10.zip  https://www.kaggle.com/api/v1/datasets/download/pankrzysiu/cifar10-python
+   curl -sL -o $D/cifar100.zip https://www.kaggle.com/api/v1/datasets/download/pypiahmad/cifar-100
+   curl -sL -o $D/svhn.zip     https://www.kaggle.com/api/v1/datasets/download/khanhvudo72/svhncropped
+   (cd $D && uvx gdown 1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa -O office_home.zip)
+   curl -sfL -o $C/art/mnist.npz https://s3.amazonaws.com/img-datasets/mnist.npz
+   unzip -q $D/cifar10.zip -d $C/cifar10
+   unzip -q $D/cifar100.zip -d $C/cifar100
+   unzip -q $D/svhn.zip test_32x32.mat -d $C/svhn
+   unzip -q $D/office_home.zip -d $C/officehome && mv $C/officehome/office_home_dg $C/officehome/office_home
+   ```
 
-最后确认 8 个任务的代码库都是干净的。下面的命令不应有任何输出，否则数据可能在第一步就被清掉。6.8 启动前和 6.9 打分前也要再检查一次：
+2. 让 setup 补全缓存里缺的条目（MNIST、privacymeter 的 pkl），建好软链并提交到任务仓库：
 
-```bash
-for c in ml_tasks/*/config.json; do
-  r=$(python3 -c "import json;print(json.load(open('$c'))['repo_dir'])")
-  [ -d "$r" ] && git -C "$r" status --porcelain
-done
-```
+   ```bash
+   python3 setup.py --skip-envs --data-cache /mnt/nvme/data --task ...   # 8 个任务，和 6.3 相同
+   chmod -R a-w /mnt/nvme/data/{cifar10,cifar100,svhn,mnist,officehome,privacymeter,art}
+   ```
 
-officehome 第一次运行时会把 torchvision 的预训练权重下载到 `~/.cache`。沙盒可以写这个目录，网络也是共享的，所以不需要额外操作。
+3. 确认 8 个任务的代码库都是干净的。下面的命令不应该有任何输出，否则数据可能在第一步就被清掉。6.8 启动前和 6.9 打分前也要再检查一次：
+
+   ```bash
+   for c in ml_tasks/*/config.json; do
+     r=$(python3 -c "import json;print(json.load(open('$c'))['repo_dir'])")
+     [ -d "$r" ] && git -C "$r" status --porcelain
+   done
+   ```
+
+不设 `--data-cache` 时，setup 会像上游一样把数据直接下载到各任务的工作区（走官方源），也会提交。
 
 ### 6.5 Baseline
 
-- **硬件和第 1 章相同**（Blackwell 加本文的环境）：直接用分支里提交的新 baseline。
-- **硬件不同**：建议先重测，用结果覆盖 `ml_tasks/<TASK>/baseline_results/{val,test}_info.json`。agent 提示词里的 baseline 和 6.9 的打分都读这两个文件。
+- **硬件和第 1 章的 Blackwell 相同**：直接用分支里提交的 baseline（g7e.24xlarge 版）。要和第 5 章的数值严格对照，先用 g7e.12xlarge 版覆盖顶层文件，两版只在 openood、privacymeter、ART 上不同（3.3）：
 
   ```bash
-  scripts/reproduction/rebaseline_task.sh <TASK> <GPU编号，CPU 填 "">
-  python3 scripts/reproduction/compare_baseline.py <TASK>
+  for d in ml_tasks/*/baseline_results/g7e12xlarge; do cp $d/*_info.json $d/..; done   # 恢复：git checkout ml_tasks
   ```
 
-  ART 要传 `""`，和 baseline 一样只用 CPU。
+- **硬件不同**：先重测，用结果覆盖 `ml_tasks/<TASK>/baseline_results/{val,test}_info.json`。agent 提示词里的 baseline 和 6.9 的打分都读这两个文件。
+
+  ```bash
+  scripts/reproduction/rebaseline_queue.sh <日志目录> <TAG>         # 全部任务，每卡一个串行队列，ART 最后单独跑
+  scripts/reproduction/rebaseline_task.sh <TASK> <GPU编号，CPU 填 ""> <TAG>   # 单个任务
+  python3 scripts/reproduction/compare_baseline.py <TASK> rebaseline_results/<TASK><TAG>
+  ```
+
+  `rebaseline_queue.sh` 的分配可以用 `QUEUES`（`"GPU:任务,任务 ..."`）和 `CPU_TASKS` 修改。结束时会打印耗时和指标对比，`nvidia-smi dmon` 的采样记录写到日志目录。结果写到 `rebaseline_results/<TASK><TAG>/`，所以 TAG 不要和已有的目录重名。
 
 ### 6.6 检查沙盒
 
@@ -325,9 +377,10 @@ officehome 第一次运行时会把 torchvision 的预训练权重下载到 `~/.
 sandbox/run_in_bwrap.sh --shell -c 'for e in opacus pycil usb domainbed privacy_meter openood art; do
   ~/fml_envs/$e/bin/python -c "import sys; print(\"$e\", sys.version.split()[0])"; done'
 sandbox/run_in_bwrap.sh --shell -c '~/fml_envs/opacus/bin/python -c "import torch; print(torch.cuda.device_count())"'
+sandbox/run_in_bwrap.sh --shell -c 'ls workspace/Robustness_openood/OpenOOD/data/cifar-100-python'
 ```
 
-每个环境都应该打印出 Python 版本，GPU 数量也应该正确。要确认 Bedrock 能否调用，可以在沙盒里用 `agents.llm.create_client(..., "AnthropicBedrock")` 发一条短消息。
+每个环境都应该打印出 Python 版本，GPU 数量要正确，数据要能通过软链读到。要确认 Bedrock 能否调用，可以在沙盒里用 `agents.llm.create_client(..., "AnthropicBedrock")` 发一条短消息。
 
 ### 6.7 冒烟测试（可选，建议做）
 
@@ -384,7 +437,7 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 
 `NI = max(0, (p_agent − p_baseline) / |p_best − p_worst|)`
 
-- `p_agent` 和 `p_baseline` 都是 **test** 指标。`p_baseline` 读 `ml_tasks/<TASK>/baseline_results/test_info.json`。
+- `p_agent` 和 `p_baseline` 都是 **test** 指标。`p_baseline` 读 `ml_tasks/<TASK>/baseline_results/test_info.json`，也就是当前顶层的那一版（3.5）。
 - 越低越好的指标把分子取反。改进为负时截断为 0。
 - `p_best` 和 `p_worst` 取指标的理论最好值和最差值，在 `compute_agent_metrics.py` 的 `RANGE_META` 里：
   - Lite 的 7 个准确率或 AUROC 类任务取 1 和 0；
@@ -409,9 +462,9 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
   - `--output-dir` 不能放在结果目录里面，脚本会拒绝。
 - **输出**：`--output-dir` 下有三张 CSV。
   - `table_raw_performance.csv`：每个任务的 baseline test 和 agent test。`note` 列都应该是 `ok`，否则表示 test 缺失、崩溃或违反约束。
-  - `table_normalized_improvement.csv`：**每个任务的 NI 和 MEAN**，即 5.1 表中的 NI 列。
+  - `table_normalized_improvement.csv`：**每个任务的 NI 和 MEAN**。
   - `table_process_metrics.csv`：12 个过程指标。
-- **原始 baseline 对照列**：5.1 表的最后一列是手工算的，公式不变，只是把 `p_baseline` 换成 `ml_tasks/<TASK>/baseline_results/original/test_info.json` 里的值。
+- **用哪一版 baseline**：对 5.1 的结果直接运行上面的命令，得到的是 5.1 表里 g7e.24xlarge 版那一列（MEAN 0.2846）。要得到主列（g7e.12xlarge 版，MEAN 0.2812），先按 6.5 用 `g7e12xlarge/` 覆盖顶层文件再打分，打完用 `git checkout ml_tasks` 恢复。5.1 表的"原始 baseline"列是手工算的，公式不变，只是把 `p_baseline` 换成 `baseline_results/original/test_info.json` 里的值。
 - **怎么判断复现是否成功**：agent 的输出是随机的，单次运行的数值不会和 5.1 完全一致，比较的是量级：
   - domainbed、privacymeter、ART 的 NI 应该大幅提升；
   - 其余任务一般在 0.02～0.16。
@@ -432,13 +485,14 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 | ART 被分到了 GPU | 要传 `CUDA_VISIBLE_DEVICES=""`。队列脚本里 ART 所在位置的 GPU 字段留空，就是这个作用 |
 | officehome 不到 10 秒就失败（timm 报错） | `huggingface_hub` 装成了 2.x。`setup.py` 已锁定 `<1.0` |
 | 沙盒里 DNS 解析失败 | `/etc/resolv.conf` 是指向 `/run/systemd/resolve/` 的软链接，沙盒脚本已挂载这个目录 |
-| 数据在第一步被删 | 数据没提交到任务代码库，见 6.4（注意要用 `add -f`） |
+| 数据在第一步被删 | 数据没提交到任务代码库。`setup.py` 无论数据怎么来的都会提交；绕过 setup 手动放的数据要自己用 `git add -f data` 提交（`data/` 在 pycil、usb 仓库的 `.gitignore` 里），再用 6.4 的命令检查 |
+| 沙盒里找不到数据（软链失效） | 缓存不在沙盒可见的路径上。沙盒会只读挂载任务模板里软链的目标；其他情况要设 `FMLBENCH_DATA_CACHE` |
 | `setup.py` 报 `missing required commands: conda, pip` | 旧版启动检查无条件要求 conda/pip，已改为只有要建 conda 环境时才检查 |
 | 全新机器上建 privacy_meter 环境失败（找不到 `requirements.txt`） | 这个环境要读克隆下来的仓库里的 requirements.txt，但旧版先建环境、后克隆。已改为建这个环境前先克隆 |
 | GPU 较慢的机器上 officehome / openood / privacymeter 超时 | 默认 2400 秒是按 Blackwell 的速度定的。L4 上要用 `execute_timeout=7200`（第 8 章） |
 | 打分时 `FileNotFoundError`（找不到某个任务） | 没加 `--lite`，脚本默认要求 18 个任务都存在 |
 | 打分时 scikit-learn 导入失败 | pyarrow 26 要求 NumPy ≥ 2，而 numpy 固定在 1.26.4。装 `pyarrow<26`（6.9） |
-| 用 `pkill -f <关键字>` 停监控时，执行命令的 shell 也被杀掉 | 关键字匹配到了这条命令自己的命令行。改用具体的 PID 去 `kill` |
+| 用 `pgrep -f` / `pkill -f <关键字>` 时匹配到（或杀掉了）执行命令的 shell | 关键字出现在这条命令自己的命令行里。改用 `pgrep -x python` 再查看 `/proc/<pid>/cmdline`，或者直接用 PID 去 `kill` |
 
 ---
 
@@ -447,25 +501,29 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 - [ ] 是否修复 ai_scientist_v2 跳过想法生成的问题，并用完整流程重跑 opacus
 - [ ] 用 `val_ratio=0.05` 重测 opacus baseline，把训练数据增加的影响和算法改进分开
 - [ ] 堵住隐藏 test 集可被读取的漏洞（把数据移出 val 阶段可访问的位置，或者在检查里拦截数据读取）
-- [ ] ART：是否构建能用 Blackwell GPU 的 TF 环境（会改动锁定的版本）
+- [ ] ART：是否构建能用 Blackwell GPU 的 TF 环境（会改动锁定的版本）；同型号 CPU 之间约 0.01 的差距原因不明（3.3）
+- [ ] openood 的训练不确定：是否在 `train_eval_baseline.py` 里设置 `cudnn.deterministic`（会改动任务代码）
 - [ ] 迁移并测试其余 10 个非 Lite 任务的环境
 - [x] 提交 harness 代码与本文档初版（分支 `repro/bedrock-uv-sandbox`：`83030f4`、`7ea0e4f`）
 - [x] 提交沙盒、耗时记录、复现脚本、新 baseline 和第 8 章的 `setup.py` 改动（`6ff6b53`、`74ff570`）
 - [x] ai_scientist_v2 的 Lite 正式测试与打分（5.1）
 - [x] 检查正式测试中各任务最佳步的代码快照（5.2）：没有读取数据，也没有改动评测代码；domainbed 利用了题目先验，privacymeter 利用了评测只做非自适应攻击这一点
 - [ ] privacymeter：是否在评测中加入自适应攻击（例如对查询做扰动），防止基于输入哈希的路由式防御拿到接近 0 的 AUC_gap（这属于修改 benchmark，需要决定）
-- [x] 提交 `compute_agent_metrics.py` 的 `--lite`/`--tasks`、`setup.py` 的 `pyarrow<26`、`run_lite_queue.sh` 的 `AGENT`/`QUEUE_SLOTS`、README 的说明、本文档和 5.1 的打分表
+- [x] 提交 `compute_agent_metrics.py` 的 `--lite`/`--tasks`、`setup.py` 的 `pyarrow<26`、`run_lite_queue.sh` 的 `AGENT`/`QUEUE_SLOTS`、README 的说明和本文档
+- [x] 合并 g7e.24xlarge 上的改动：数据缓存、按单卡重测的 baseline、停止跟踪运行产物。两版 baseline 都保留（3.5）
 - [ ] domainbed（ColoredMNIST）利用题目先验大幅提升（见 5.2）：要不要通过改任务说明来限制（这属于修改 benchmark，需要决定）
 - [ ] `setup.py` 建 uv 环境时是否固定只用 uv 管理的 Python（`--python-preference only-managed`），避免用到宿主机的解释器
-- [ ] autoresearch 正式测试（5.3）结束后：统计超时步数，用 `--lite` 打分，检查最佳步代码快照，和 ai_scientist_v2 对比
-- [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）
+- [ ] autoresearch 正式测试（5.3）结束后：统计超时步数，用 `--lite` 打分（g7e.12xlarge 版为主，同时给出 g7e.24xlarge 版，同 5.1），检查最佳步代码快照，和 ai_scientist_v2 对比
+- [ ] autoresearch 结束后，把 g7e.12xlarge 上的工作目录更新到合并了 g7e.24xlarge 改动的提交。为了不影响正在运行的测试，目前停在合并前的 `7765d6a`。更新会删除不再跟踪的日志文件，需要先备份，或者更新后用 `git restore --source=7765d6a --worktree -- docs/reproduction_logs benchmark_results_smoke` 恢复
+- [ ] 在缓存为空的机器上验证 `setup.py --data-cache` 的自动下载（目前只有 MNIST 实际走过这条路径）
+- [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）和 g7e.24xlarge 上的 `/mnt/nvme/data/_downloads/`（2.1 GB）
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
 
 ---
 
 ## 8. 第二台机器复现：4 × L4（2026-11-03 08:20 ～ 12:50）
 
-按第 6 章的流程在另一台机器上从头走了一遍：建环境 → 重测 8 个 baseline → 8 个 Lite 任务的冒烟测试。第一台机器的正式测试（5.1）当时正在 EFS 的仓库目录里运行，为了不和它冲突（`workspace/`、`rebaseline_results/`、`benchmark_results_smoke/` 和 baseline 文件），整个仓库被复制到本机本地盘 `~/FML-bench`（不含 `workspace/` 和结果目录），所有操作都在这个副本里完成。环境在 `~/fml_envs`。结果和日志都复制到了 EFS 仓库的 `docs/reproduction_logs/l4/` 下（见下文各节）。
+按第 6 章的流程在另一台机器上从头走了一遍：建环境 → 重测 8 个 baseline → 8 个 Lite 任务的冒烟测试。第一台机器的正式测试（5.1）当时正在 EFS 的仓库目录里运行，为了不和它冲突（`workspace/`、`rebaseline_results/`、`benchmark_results_smoke/` 和 baseline 文件），整个仓库被复制到本机本地盘 `~/FML-bench`（不含 `workspace/` 和结果目录），所有操作都在这个副本里完成。环境在 `~/fml_envs`。结果和日志都复制到了 EFS 仓库的 `docs/reproduction_logs/l4/` 下（见下文各节）。本章的"第一台"指 g7e.12xlarge，"本机"指这台 L4 机器。
 
 ### 8.1 机器环境
 
@@ -501,9 +559,9 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 
 ### 8.3 Baseline 重测（第 2 步）
 
-`rebaseline_task.sh` 并行运行。分配：GPU0 officehome；GPU1 usb + domainbed；GPU2 openood + opacus；GPU3 pycil + privacymeter；ART 只用 CPU。`compare_baseline.py` 已扩展，现在同时输出原始值（`original/`）、当前采用的 baseline（第一台的重测结果）和本机结果。
+`rebaseline_task.sh` 并行运行。分配：GPU0 officehome；GPU1 usb + domainbed；GPU2 openood + opacus；GPU3 pycil + privacymeter；ART 只用 CPU。`compare_baseline.py` 已扩展，现在同时输出原始值（`original/`）、当前顶层的 baseline 和本机结果。下表的"12xlarge"是当时顶层的 g7e.12xlarge 版，g7e.24xlarge 版见 3.2。
 
-| 任务 | 指标（方向） | val：原始 / 采用 / **L4** | test：原始 / 采用 / **L4** | L4 耗时（val/test） | 第一台耗时 | 结论 |
+| 任务 | 指标（方向） | val：原始 / 12xlarge / **L4** | test：原始 / 12xlarge / **L4** | L4 耗时（val/test） | 第一台耗时 | 结论 |
 |---|---|---|---|---|---|---|
 | Privacy_opacus | test_acc（↑） | 0.5894 / 0.5881 / **0.5878** | 0.5877 / 0.5870 / **0.5854** | 2m14s / 7s | 1m10s | 一致 |
 | Continual_Learning_pycil | avg_incremental_acc（↑） | 0.5911 / 0.5925 / **0.6075** | 0.5952 / 0.5944 / **0.6034** | 21m36s / 21m02s | 8m54s | 接近（+1～1.5 点） |
@@ -511,34 +569,36 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 | Robustness_openood | auroc（↑） | 0.8758 / 0.8804 / **0.8697** | 0.9302 / 0.9212 / **0.9106** | 32m07s / 9s | 10m25s | 接近（−1 点） |
 | Data_Efficiency_usb | test_acc（↑） | 0.0757 / 0.0827 / **0.0723** | 0.0790 / 0.0861 / **0.0829** | 14m39s / 6s | 11m11s | 接近（原值本身约 8%） |
 | Generalization_domainbed_officehome | avg_acc（↑） | 0.8832 / 0.9011 / **0.8942** | 0.8629 / 0.8570 / **0.8599** | **50m19s** / <1s | 10m55s | 接近 |
-| Generalization_domainbed | in_acc（↑） | 0.2792 / 0.2393 / **0.2626** | 0.2868 / 0.2501 / **0.2706** | 4m48s / <1s | 3m32s | 介于原始和采用值之间 |
-| Robustness_and_Reliability_art（CPU） | defense_score（↑） | 0.4720 / 0.3005 / **0.2913** | 0.4774 / 0.2921 / **0.2895** | 5m46s / 7s | 4m51s | 与采用值接近，与原始值仍差很多 |
+| Generalization_domainbed | in_acc（↑） | 0.2792 / 0.2393 / **0.2626** | 0.2868 / 0.2501 / **0.2706** | 4m48s / <1s | 3m32s | 介于原始值和 Blackwell 之间 |
+| Robustness_and_Reliability_art（CPU） | defense_score（↑） | 0.4720 / 0.3005 / **0.2913** | 0.4774 / 0.2921 / **0.2895** | 5m46s / 7s | 4m51s | 与 Blackwell 接近，与原始值仍差很多 |
 
 结果目录：`docs/reproduction_logs/l4/rebaseline_results/<TASK>/`（在本机上是 `~/FML-bench/rebaseline_results/<TASK>/`）。setup 日志：`docs/reproduction_logs/l4/setup_*.log`。
 
 **分析**
 
-- 8 个任务都跑通了，与当前采用的 baseline 相比，全部一致或接近。
-- **domainbed 补充了第 3 章的结论。** 每台机器上都只有一个种子，结果是确定性的（第一台跑两次完全相同，都是 0.239320）。本机用同样的 torch 2.7.1，得到 0.2626，落在原始值（torch 1.12.1，0.279）和 Blackwell（0.239）之间。所以第 3 章"最可能是 torch 版本"的判断不完整：**同一个 torch 版本只换 GPU，结果也会变化约 0.02**。这个任务对硬件和 kernel 层面的数值差异本身就很敏感。
-- **ART 进一步支持第 3 章的判断。** 本机 CPU 的各项分指标和第一台 CPU 几乎一样（clean_acc 0.9555 对 0.9558，poison_acc 0.816 对 0.813），defense_score 的差距约 0.01，可能来自 AMD 和 Intel 的浮点差异。两台都离原始的 0.472 很远，"原 baseline 用的是 GPU 或另一版代码"的可能性更大了。
+- 8 个任务都跑通了，与两版 Blackwell baseline 相比，全部一致或接近。
+- **domainbed 补充了第 3 章的结论。** 每台机器上都只有一个种子，结果是确定性的（第一台跑两次完全相同，都是 0.239320）。本机用同样的 torch 2.7.1，得到 0.2626，落在原始值（torch 1.12.1，0.279）和 Blackwell（0.239）之间。所以"最可能是 torch 版本"的判断不完整：**同一个 torch 版本只换 GPU，结果也会变化约 0.02**。这个任务对硬件和 kernel 层面的数值差异本身就很敏感。
+- **ART 进一步支持 3.4 的判断。** 本机 CPU 的各项分指标和第一台 CPU 几乎一样（clean_acc 0.9555 对 0.9558，poison_acc 0.816 对 0.813），defense_score 的差距约 0.01，可能来自 AMD 和 Intel 的浮点差异。两台都离原始的 0.472 很远，"原 baseline 用的是 GPU 或另一版代码"的可能性更大了。
 - **速度**：上表的 L4 耗时是在多个任务共用 GPU 的情况下测的，和第一台机器的并发情况也不一样，所以不能直接比较。为此又做了一次对照实验：每个任务单独占一张 L4 重跑 val（`rebaseline_results/<TASK>__solo/`），同时用 `nvidia-smi dmon` 每 5 秒采样一次（`docs/reproduction_logs/l4/solo/dmon*.txt`）。除 privacymeter 外，重跑的 val 结果与第一次 L4 测量逐字节相同。privacymeter 开了 `cudnn.benchmark`，卷积算法的选择不固定，结果是 0.3287 对 0.3282。
 
-  | 任务 | 第一台（并发情况） | L4 第一次（并发情况） | **L4 单卡** | **单卡 / 第一台** | L4 单卡时：SM 利用率 / 显存带宽 / 功耗 / SM 时钟 | 瓶颈 |
+  | 任务 | 第一台（并发情况） | L4 第一次（并发情况） | **L4 单卡** | **L4 单卡 / g7e.24xlarge 单卡** | L4 单卡时：SM 利用率 / 显存带宽 / 功耗 / SM 时钟 | 瓶颈 |
   |---|---|---|---|---|---|---|
-  | officehome | 10m55s（单独） | 50m19s（单独） | 50m19s | **4.6 倍** | 没有用 dmon 记录；baseline 运行时抽查一次是 94% | GPU 算力（ResNet-50，224×224，fp32/TF32） |
+  | officehome | 10m55s（单独） | 50m19s（单独） | 50m19s | **4.7 倍** | 没有用 dmon 记录；baseline 运行时抽查一次是 94% | GPU 算力（ResNet-50，224×224，fp32/TF32） |
   | privacymeter | 6m15s（单独） | 40m39s（前 21 分钟和 pycil 共用） | 25m21s | **4.1 倍** | 96% / 78% / 70.6 W（97% 的时间碰到功耗上限）/ 1182 MHz | GPU 算力（4 个 WRN-28-2，每个 epoch 做一次完整评测） |
-  | openood | 10m25s（和 usb 共用） | 32m07s（和 opacus 共用 2 分钟） | 30m55s | **3.0 倍**（第一台有并发，真实差距更大） | 97% / 76% / 70.8 W（95%）/ 1325 MHz | GPU 算力（ResNet-18，32×32，第一层不降采样，100 epoch） |
-  | opacus | 1m10s（单独） | 2m14s（和 openood 共用） | 2m31s | 2.1 倍 | 41% / 44% / 47 W / 1903 MHz | 混合：每样本梯度加上 CPU 开销（2 个 worker、隐私预算计算） |
+  | openood | 10m25s（和 usb 共用） | 32m07s（和 opacus 共用 2 分钟） | 30m55s | **4.5 倍** | 97% / 76% / 70.8 W（95%）/ 1325 MHz | GPU 算力（ResNet-18，32×32，第一层不降采样，100 epoch） |
+  | opacus | 1m10s（单独） | 2m14s（和 openood 共用） | 2m31s | 1.9 倍 | 41% / 44% / 47 W / 1903 MHz | 混合：每样本梯度加上 CPU 开销（2 个 worker、隐私预算计算） |
   | pycil | 8m54s（和 domainbed 共用 3.5 分钟） | 21m36s（和 privacymeter 共用全程） | 12m19s | 1.4 倍 | 50% / 25% / 57 W / 1819 MHz | CPU、数据加载、Python 开销（ResNet-32 只有 0.46M 参数，ColorJitter 在 CPU 上做） |
-  | usb | 11m11s（和 openood 共用） | 14m39s（和 domainbed 共用 5 分钟） | 14m28s | 1.3 倍 | 40% / 27% / 55 W / 1831 MHz | CPU 和数据加载（2 个 worker；有标注数据只有 200 张，每 3 步就重建一次 worker，全程约 5000 次；RandAugment 在 CPU 上做） |
-  | domainbed | 3m32s（和 pycil、ART 共用 CPU） | 4m48s（和 usb、ART 共用） | **1m49s** | **0.5 倍（更快）** | 46% / 34% / 63 W / 1934 MHz | CPU 和 Python（MNIST 小 CNN，每 100 步对 7 万张图做一次评测，8 个 loader × 8 个 worker） |
-  | ART（CPU） | 4m51s | 5m46s | — | 1.2 倍 | — | CPU（Intel Xeon 8559C 对比 AMD EPYC 7R13） |
+  | usb | 11m11s（和 openood 共用） | 14m39s（和 domainbed 共用 5 分钟） | 14m28s | 1.6 倍 | 40% / 27% / 55 W / 1831 MHz | CPU 和数据加载（2 个 worker；有标注数据只有 200 张，每 3 步就重建一次 worker，全程约 5000 次；RandAugment 在 CPU 上做） |
+  | domainbed | 3m32s（和 pycil、ART 共用 CPU） | 4m48s（和 usb、ART 共用） | **1m49s** | 1.0 倍 | 46% / 34% / 63 W / 1934 MHz | CPU 和 Python（MNIST 小 CNN，每 100 步对 7 万张图做一次评测，8 个 loader × 8 个 worker） |
+  | ART（CPU） | 4m51s | 5m46s | — | 1.4 倍 | — | CPU（Intel Xeon 8559C 对比 AMD EPYC 7R13；L4 机器上和 GPU 任务同时运行） |
+
+  比值的分母是 g7e.24xlarge 上单独占一张卡的耗时（3.2）。第一台有并发，不适合做分母。
 
   结论：**这种差距是合理的，原因有两层。**
-  1. **任务本身的瓶颈不同。** 受 GPU 算力限制的任务（officehome、privacymeter、openood）慢 3～4.6 倍。L4 的 fp32/TF32 算力和显存带宽本来就比 RTX PRO 6000 低好几倍，而且功耗上限只有 72 W。这几个任务 95% 以上的时间都碰到功耗上限（`SW Power Cap` 处于触发状态），SM 时钟从 2040 MHz 降到 1180～1330 MHz。受 CPU、数据加载或 Python 开销限制的任务（pycil、usb、domainbed），L4 的 GPU 只用到 40～50%，换更快的 GPU 也省不了多少时间，所以只慢 1.3～1.4 倍，甚至更快。opacus 介于两者之间。
-  2. **并发的影响。** 第一次 L4 测量时，privacymeter（6.5 倍 → 单卡 4.1 倍）和 pycil（2.4 倍 → 单卡 1.4 倍）都和其他任务共用 GPU，被拖慢了很多。domainbed 对 CPU 竞争很敏感：两台机器第一次测量时都和占满全部 CPU 的 ART（TF CPU）同时运行，单独跑时只要 1m49s，比第一台的 3m32s 还快（本机 96 核，第一台 48 核）。
+  1. **任务本身的瓶颈不同。** 受 GPU 算力限制的任务（officehome、privacymeter、openood）慢 4.1～4.7 倍。L4 的 fp32/TF32 算力和显存带宽本来就比 RTX PRO 6000 低好几倍，而且功耗上限只有 72 W。这几个任务 95% 以上的时间都碰到功耗上限（`SW Power Cap` 处于触发状态），SM 时钟从 2040 MHz 降到 1180～1330 MHz。受 CPU、数据加载或 Python 开销限制的任务（pycil、usb、domainbed），L4 的 GPU 只用到 40～50%，换更快的 GPU 也省不了多少时间，所以只慢 1.0～1.6 倍。opacus 介于两者之间。
+  2. **并发的影响。** 第一次 L4 测量时，privacymeter（6.5 倍 → 单卡 4.1 倍）和 pycil（2.4 倍 → 单卡 1.4 倍）都和其他任务共用 GPU，被拖慢了很多。domainbed 对 CPU 竞争很敏感：两台机器第一次测量时都和占满全部 CPU 的 ART（TF CPU）同时运行，单独跑时只要 1m49s，和 g7e.24xlarge 单卡的 1m45s 相当，第一台的 3m32s 是被 CPU 竞争拖慢的。
   - 对冒烟测试和正式测试的影响：超时风险集中在 officehome、privacymeter、openood 这三个受 GPU 算力限制的任务上，同一张卡上再加任务会更慢。在 L4 上，这三个任务最好每个单独占一张卡。
-- **采用**：`ml_tasks/*/baseline_results/` **没有改动**，冒烟测试的提示词里用的仍是第一台测出的 baseline，以便和 Blackwell 上的冒烟测试比较。本机结果与它的差距都在可接受范围内。如果要以 L4 作为正式评测平台，需要另外决定是否换成本机的值。
+- **采用**：L4 的结果没有写进 `ml_tasks/`。冒烟测试的提示词里用的是 g7e.12xlarge 版 baseline，以便和 Blackwell 上的冒烟测试比较。本机结果与两版 Blackwell baseline 的差距都在可接受范围内。如果要以 L4 作为正式评测平台，需要另外决定是否换成本机的值。
 
 ### 8.4 冒烟测试：ai_scientist_v2 × 8 个 Lite 任务 × Opus 5.5（09:25 ～ 12:49）
 
@@ -565,7 +625,7 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | ART（CPU） | 0.301 / 0.292 | 0.931 / 0.931 | **0.967 / 0.966** | 373 / 222 / 370 / 224 | 0 | — | 2.9 GB | 5.7 万 |
 | openood | 0.880 / 0.921 | 0.914 / 0.986 | **0.915 / 0.986** | 2497 / 2027 / 1839 / 1841 | **1** | 1.5 GB | 2.3 GB | 2.2 万 |
 
-（评测命令只要几秒，表中没有列出。）
+（baseline 列是 g7e.12xlarge 版，也就是冒烟测试时提示词里的值。评测命令只要几秒，表中没有列出。）
 
 - **整体**：
   - 总耗时 3 小时 24 分钟，由 officehome 决定（4 次训练，每次约 50 分钟）。其余任务都在 2 小时内完成。
@@ -577,24 +637,37 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 - **domainbed（需要注意，和 Blackwell 冒烟相同）**：最优的第 2 步仍然是对红绿通道做置换对称（训练和预测时都对两种通道顺序的 logits 取平均），另外加了权重 EMA 和小损失截断（针对 25% 的标签噪声）。还是在利用 ColoredMNIST 的构造先验。
 - **ART（和 Blackwell 冒烟不同）**：最优的第 2 步只改了 `dp_instahide_trainer.py`（`model.py` 和 `split_config.json` 只改了空白）。做法是：先用 2 个 epoch 预训练，再在倒数第二层的特征上按类别做谱签名（spectral signatures）和 2 簇激活聚类（activation clustering），并按标签一致性过滤可疑样本，然后把权重重置为初始值，在过滤后的数据上做 DP-InstaHide 训练。**没有清空图像外框，也没有改写 `predict`**，用的是已发表的通用后门防御方法，不依赖触发器的位置。只有 3 步，样本太少，不能据此判断 agent 的倾向。
 
-日志和资源数据：`docs/reproduction_logs/l4/smoke_lite8/`（`*.log` 被 `.gitignore` 忽略，`resources.csv` 和 `smoke.out` 可以提交）。
+日志和资源数据：`docs/reproduction_logs/l4/smoke_lite8/`（不在版本库里，见附录）。
 
 ---
 
 ## 附：相关文件
 
+和上游一样，运行产物不纳入版本库：`rebaseline_results/`、`benchmark_results/`、`benchmark_results_smoke/`、`metric_reports/`、`docs/reproduction_logs/` 都在 `.gitignore` 里，只存在于产生它们的机器上。版本库里只有 `ml_tasks/<TASK>/baseline_results/` 下的 baseline 文件。
+
 | 路径 | 说明 |
 |---|---|
-| `scripts/reproduction/rebaseline_task.sh` | 单任务 baseline 重测（val → test，uv 环境） |
-| `scripts/reproduction/compare_baseline.py` | 将重测结果与 `baseline_results/original/` 对比 |
-| `rebaseline_results/<TASK>[__rerun2]/` | 重测的原始输出 |
+| `ml_tasks/<TASK>/baseline_results/{val,test}_info.json` | 采用的 baseline：g7e.24xlarge 版（3.5） |
+| `ml_tasks/<TASK>/baseline_results/g7e12xlarge/` | g7e.12xlarge 版 baseline，第 5 章用的（3.5） |
 | `ml_tasks/<TASK>/baseline_results/original/` | 仓库原有的 baseline 文件 |
+| `scripts/reproduction/rebaseline_queue.sh` | 每张 GPU 一个串行队列地重测全部 baseline，ART 最后单独跑，并记录 `nvidia-smi dmon` |
+| `scripts/reproduction/rebaseline_task.sh` | 单任务 baseline 重测（val → test，uv 环境） |
+| `scripts/reproduction/compare_baseline.py` | 输出原始值、顶层 baseline 和重测值的对比 |
 | `sandbox/run_in_bwrap.sh` | 沙盒入口 |
 | `scripts/reproduction/resource_monitor.py` | 按工作区副本统计各任务的显存和内存（PSS）；`--summary` 输出峰值 |
 | `scripts/reproduction/run_smoke_lite.sh` | Lite 任务的冒烟测试（6.7）。默认是 7 个任务 / 2 张卡，可用 `SMOKE_TASKS` / `EXTRA_OVERRIDES` 自定义 |
 | `scripts/reproduction/run_lite_queue.sh` | Lite 任务的正式测试，按位置排队；`AGENT`、`QUEUE_SLOTS` 可换 agent 和排队方式（6.8） |
 | `compute_agent_metrics.py` | 打分，输出原始指标、NI 和过程指标三张表（6.9） |
-| `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
-| `metric_reports/ai_scientist_v2_opus55_lite/` | 5.1 的三张表（CSV）和嵌入缓存 |
-| `benchmark_results_smoke/` | 冒烟测试结果 |
-| `docs/reproduction_logs/` | agent 运行日志：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`。`*.log` 被 `.gitignore` 忽略，已完成的运行日志用 `git add -f` 提交，进行中的 5.3 还没提交；各目录下还有资源采样的 csv |
+
+以下运行产物不在版本库里：
+
+| 机器 | 路径 | 说明 |
+|---|---|---|
+| g7e.24xlarge | `rebaseline_results/<TASK>__g7e24/` | g7e.24xlarge 版 baseline 的原始输出（val/test 结果、日志、`run_info.txt`、`pip_freeze.txt`） |
+| g7e.24xlarge | `rebaseline_results/Robustness_openood__g7e24_rerun2/`、`rebaseline_results/Robustness_and_Reliability_art__g7e24_48cpu/` | openood 同卡重跑、ART 限制为 48 个 CPU 的对照（3.3） |
+| g7e.24xlarge | `docs/reproduction_logs/g7e24/` | setup 日志，以及 `rebaseline/` 下的队列记录、`summary.txt`、`dmon.txt` |
+| g7e.12xlarge | `rebaseline_results/<TASK>[__rerun2]/` | g7e.12xlarge 版 baseline 的原始输出和重跑对照 |
+| g7e.12xlarge | `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
+| g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/` | 5.1 的三张表（CSV）和嵌入缓存 |
+| g7e.12xlarge | `benchmark_results_smoke/` | 冒烟测试结果 |
+| g7e.12xlarge | `docs/reproduction_logs/` | agent 运行日志和资源采样：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`，冒烟测试在 `smoke_lite7/`；L4 的结果和日志复制在 `l4/` 下 |

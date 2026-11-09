@@ -36,6 +36,10 @@ pip-log.txt
 
 # Project-specific
 /benchmark_results/
+/benchmark_results_smoke/
+/rebaseline_results/
+/docs/reproduction_logs/
+/metric_reports/
 /logs/
 /tmp/
 /data/

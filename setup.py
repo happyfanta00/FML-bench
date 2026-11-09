@@ -11,6 +11,8 @@ Usage:
     python setup.py --list                       # list available tasks
     python setup.py --skip-envs                  # skip conda env creation
     python setup.py --skip-data                  # skip dataset downloads
+    python setup.py --data-cache /mnt/nvme/data  # keep datasets in a shared cache, symlink them
+                                                 # into the workspaces (or $FMLBENCH_DATA_CACHE)
 """
 from __future__ import annotations
 
@@ -29,6 +31,9 @@ ML_TASKS = PROJECT_ROOT / "ml_tasks"
 UV_ENVS = Path(os.environ.get("FMLBENCH_UV_ENVS", "~/fml_envs")).expanduser()
 # PyTorch wheels built for CUDA 12.8 (first release line supporting Blackwell / sm_120).
 TORCH_CU128 = "--index-url https://download.pytorch.org/whl/cu128"
+# Optional shared dataset cache (--data-cache / $FMLBENCH_DATA_CACHE). When set, datasets live
+# there once and are symlinked into the task workspaces; see link_cached().
+DATA_CACHE: Path | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -173,12 +178,128 @@ def clone_repo(parent_dir: Path, repo_name: str, url: str, commit: str,
 
 
 def git_commit_data(repo_path: Path, paths: list, message: str) -> None:
-    """git add -f <paths> and commit if there is anything to commit."""
-    cmd = ["git", "add", "-f", *paths]
-    run(cmd, cwd=repo_path, check=False)
+    """git add -f <paths> and commit if there is anything to commit.
+
+    Called unconditionally after the data step (not only after a download), so data that was
+    placed by hand or symlinked from the cache also ends up in HEAD; the executor runs
+    `git reset --hard && git clean -fd` before every step. Paths that do not exist are skipped.
+    Symlinks are committed as symlinks (git does not follow them).
+    """
+    existing = [p for p in paths if (repo_path / p).exists() or (repo_path / p).is_symlink()]
+    if not existing:
+        info(f"nothing to commit in {repo_path.name}: none of {paths} exist")
+        return
+    run(["git", "add", "-f", *existing], cwd=repo_path, check=False)
     diff = subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=repo_path)
     if diff.returncode != 0:
         run(["git", "commit", "-m", message], cwd=repo_path, check=False)
+    else:
+        info(f"{repo_path.name}: {existing} already committed")
+
+
+# ---------------------------------------------------------------------------
+# Shared dataset cache
+# ---------------------------------------------------------------------------
+# Layout of DATA_CACHE (each entry is filled by the matching fetcher if it is missing, so the
+# cache can also be pre-populated by hand from a mirror):
+#   cifar10/cifar-10-batches-py/        torchvision CIFAR10 (+ cifar-10-python.tar.gz)
+#   cifar100/cifar-100-python/          torchvision CIFAR100
+#   svhn/test_32x32.mat                 torchvision SVHN, test split
+#   mnist/MNIST/raw/                    torchvision MNIST
+#   officehome/office_home/{art,clipart,product,real_world}/
+#   privacymeter/cifar10{,_population}.pkl   generated from cifar10/ by setup
+#   art/mnist.npz                       ART's load_mnist() file (linked from ~/.art/data/)
+# The task workspaces then contain symlinks into the cache (committed to the task repos as
+# symlinks), so every workspace copy shares one read-only copy of the data.
+
+def _tv_fetch(env: str, code: str, cwd=None):
+    """Fetcher that runs a torchvision download snippet ({root} = cache entry dir) in `env`."""
+    def fetch(root: Path):
+        root.mkdir(parents=True, exist_ok=True)
+        uv_run(env, "import torchvision\n" + code.format(root=str(root)), cwd=cwd or PROJECT_ROOT)
+    return fetch
+
+
+def _fetch_office_home(root: Path):
+    root.mkdir(parents=True, exist_ok=True)
+    run(["uvx", "gdown", "1gkbf_KaxoBws-GWT3XIPZ7BnkqbAxIFa", "-O", "office_home.zip"], cwd=root)
+    run(["unzip", "-q", "office_home.zip"], cwd=root)
+    run(["mv", "office_home_dg", "office_home"], cwd=root)
+    (root / "office_home.zip").unlink(missing_ok=True)
+
+
+def _fetch_art_mnist(root: Path):
+    # Same URL as art.utils.load_mnist at the pinned ART commit.
+    root.mkdir(parents=True, exist_ok=True)
+    run(["curl", "-fL", "-o", str(root / "mnist.npz"), "https://s3.amazonaws.com/img-datasets/mnist.npz"])
+
+
+def _fetch_privacymeter_pkl(root: Path):
+    # Same pickles as the non-cache path (setup_privacy_privacymeter), built from cached CIFAR-10.
+    cifar_root = cached("cifar10", "cifar-10-batches-py").parent
+    root.mkdir(parents=True, exist_ok=True)
+    uv_run("privacy_meter", f"""
+import pickle, torchvision
+from torchvision import transforms
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+])
+all_data = torchvision.datasets.CIFAR10(root=r'{cifar_root}', train=True,  download=True, transform=transform)
+test_data = torchvision.datasets.CIFAR10(root=r'{cifar_root}', train=False, download=True, transform=transform)
+with open(r'{root / "cifar10.pkl"}', 'wb') as f:
+    pickle.dump(all_data, f)
+with open(r'{root / "cifar10_population.pkl"}', 'wb') as f:
+    pickle.dump(test_data, f)
+""", cwd=PROJECT_ROOT)
+
+
+# entry -> fetcher(root_dir_of_entry). The env only provides torchvision for the download.
+CACHE_FETCHERS = {
+    "cifar10": _tv_fetch("opacus", "torchvision.datasets.CIFAR10(root=r'{root}', train=True, download=True)\n"
+                                   "torchvision.datasets.CIFAR10(root=r'{root}', train=False, download=True)"),
+    "cifar100": _tv_fetch("pycil", "torchvision.datasets.CIFAR100(root=r'{root}', train=True, download=True)\n"
+                                   "torchvision.datasets.CIFAR100(root=r'{root}', train=False, download=True)"),
+    "svhn": _tv_fetch("openood", "torchvision.datasets.SVHN(root=r'{root}', split='test', download=True)"),
+    "mnist": _tv_fetch("domainbed", "torchvision.datasets.MNIST(root=r'{root}', train=True, download=True)\n"
+                                    "torchvision.datasets.MNIST(root=r'{root}', train=False, download=True)"),
+    "officehome": _fetch_office_home,
+    "privacymeter": _fetch_privacymeter_pkl,
+    "art": _fetch_art_mnist,
+}
+
+
+def cached(entry: str, name: str) -> Path:
+    """Return DATA_CACHE/<entry>/<name>, fetching the entry first if <name> is missing."""
+    path = DATA_CACHE / entry / name
+    if not path.exists():
+        info(f"data cache: {path} missing, fetching '{entry}'")
+        CACHE_FETCHERS[entry](DATA_CACHE / entry)
+        if not path.exists():
+            die(f"data cache: fetching '{entry}' did not produce {path}")
+    return path
+
+
+def link_cached(dst: Path, entry: str, name: str) -> None:
+    """Make `dst` a symlink to DATA_CACHE/<entry>/<name> (fetched into the cache if missing).
+
+    An existing real file/dir at `dst` (data placed by hand) is left alone; a symlink pointing
+    elsewhere is replaced.
+    """
+    src = cached(entry, name)
+    shown = dst.relative_to(PROJECT_ROOT) if dst.is_relative_to(PROJECT_ROOT) else dst
+    if dst.is_symlink():
+        if dst.resolve() == src.resolve():
+            info(f"{shown} already links to {src}")
+            return
+        info(f"replacing symlink {dst} -> {os.readlink(dst)}")
+        dst.unlink()
+    elif dst.exists():
+        info(f"{dst} exists and is not a symlink, keeping it (not linking to {src})")
+        return
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    dst.symlink_to(src)
+    info(f"linked {shown} -> {src}")
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +315,9 @@ def setup_generalization_domainbed(args):
     if args.skip_data:
         return
     template = WORKSPACE / "Generalization_domainbed"
-    if not (template / "data" / "MNIST" / "raw").exists():
+    if DATA_CACHE:
+        link_cached(template / "data" / "MNIST", "mnist", "MNIST")
+    elif not (template / "data" / "MNIST" / "raw").exists():
         info("downloading MNIST for domainbed")
         uv_run("domainbed", f"""
 import torchvision
@@ -250,7 +373,7 @@ import torchvision
 torchvision.datasets.CIFAR10(root=r'{target}', train=True,  download=True)
 torchvision.datasets.CIFAR10(root=r'{target}', train=False, download=True)
 """)
-        git_commit_data(repo, ["datasets/"], "add cifar-10 dataset for agent benchmark")
+    git_commit_data(repo, ["datasets/"], "add cifar-10 dataset for agent benchmark")
 
 
 def setup_continual_learning(args):
@@ -268,7 +391,7 @@ import torchvision
 torchvision.datasets.MNIST(root=r'{target}', train=True,  download=True)
 torchvision.datasets.MNIST(root=r'{target}', train=False, download=True)
 """)
-        git_commit_data(repo, ["store/datasets/"], "add mnist dataset for agent benchmark")
+    git_commit_data(repo, ["store/datasets/"], "add mnist dataset for agent benchmark")
 
 
 def setup_causality_causalml(args):
@@ -279,6 +402,11 @@ def setup_causality_causalml(args):
 
 
 def setup_robustness_art(args):
+    # MNIST is fetched at run time by art.utils.load_mnist into ART_DATA_PATH (default
+    # ~/.art/data, outside the workspace, so nothing to commit). With a cache, pre-link it there.
+    # (Inside sandbox/run_in_bwrap.sh $HOME is an empty tmpfs, so ART downloads it per run.)
+    if DATA_CACHE and not args.skip_data:
+        link_cached(Path.home() / ".art" / "data" / "mnist.npz", "art", "mnist.npz")
     clone_repo(WORKSPACE / "Robustness_and_Reliability_art", "adversarial-robustness-toolbox",
                "https://github.com/Trusted-AI/adversarial-robustness-toolbox.git",
                "5ddd8ef204a8352d19d4bd212a4de5d4b7ca6fa9",
@@ -300,7 +428,10 @@ def setup_privacy_privacymeter(args):
     if args.skip_data:
         return
     pkl = repo / "data" / "cifar10.pkl"
-    if not pkl.exists():
+    if DATA_CACHE:
+        for name in ("cifar10.pkl", "cifar10_population.pkl"):
+            link_cached(repo / "data" / name, "privacymeter", name)
+    elif not pkl.exists():
         info("downloading CIFAR-10 + generating pkl files for privacymeter")
         uv_run("privacy_meter", f"""
 import os, pickle, torchvision
@@ -318,7 +449,7 @@ with open(path + '.pkl', 'wb') as f:
 with open(path + '_population.pkl', 'wb') as f:
     pickle.dump(test_data, f)
 """)
-        git_commit_data(repo, ["data/"], "add cifar-10 dataset and pkl files for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-10 dataset and pkl files for agent benchmark")
 
 
 def setup_fairness_aif360(args):
@@ -356,7 +487,9 @@ def setup_generalization_officehome(args):
     if args.skip_data:
         return
     out = WORKSPACE / "Generalization_domainbed_officehome" / "data"
-    if not (out / "office_home").exists():
+    if DATA_CACHE:
+        link_cached(out / "office_home", "officehome", "office_home")
+    elif not (out / "office_home").exists():
         info("downloading OfficeHome dataset (~2.4GB)")
         out.mkdir(parents=True, exist_ok=True)
         # uvx: no host pip/python with gdown needed
@@ -399,14 +532,16 @@ def setup_continual_learning_pycil(args):
                       setup_files=[("ml_tasks/Continual_Learning_pycil/algorithm.py", "algorithm.py")])
     if args.skip_data:
         return
-    if not (repo / "data" / "cifar-100-python").exists():
+    if DATA_CACHE:
+        link_cached(repo / "data" / "cifar-100-python", "cifar100", "cifar-100-python")
+    elif not (repo / "data" / "cifar-100-python").exists():
         info("downloading CIFAR-100 for pycil")
         uv_run("pycil", f"""
 import torchvision
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
 """)
-        git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
 
 
 def setup_privacy_opacus(args):
@@ -418,7 +553,9 @@ def setup_privacy_opacus(args):
                       ])
     if args.skip_data:
         return
-    if not (repo / "data" / "cifar-10-batches-py").exists():
+    if DATA_CACHE:
+        link_cached(repo / "data" / "cifar-10-batches-py", "cifar10", "cifar-10-batches-py")
+    elif not (repo / "data" / "cifar-10-batches-py").exists():
         info("downloading CIFAR-10 for opacus")
         # cd to PROJECT_ROOT to avoid python importing the local opacus/ folder
         uv_run("opacus", f"""
@@ -426,7 +563,7 @@ import torchvision
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=False, download=True)
 """, cwd=PROJECT_ROOT)
-        git_commit_data(repo, ["data/"], "add cifar-10 dataset for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-10 dataset for agent benchmark")
 
 
 def setup_data_efficiency_usb(args):
@@ -435,14 +572,16 @@ def setup_data_efficiency_usb(args):
                       setup_files=[("ml_tasks/Data_Efficiency_usb/algorithm.py", "algorithm.py")])
     if args.skip_data:
         return
-    if not (repo / "data" / "cifar-100-python").exists():
+    if DATA_CACHE:
+        link_cached(repo / "data" / "cifar-100-python", "cifar100", "cifar-100-python")
+    elif not (repo / "data" / "cifar-100-python").exists():
         info("downloading CIFAR-100 for usb")
         uv_run("usb", f"""
 import torchvision
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
 """)
-        git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
 
 
 def setup_representation_learning_solo(args):
@@ -460,7 +599,7 @@ import torchvision
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=True,  download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
 """)
-        git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-100 dataset for agent benchmark")
 
 
 def setup_robustness_openood(args):
@@ -475,7 +614,11 @@ def setup_robustness_openood(args):
     needs = (not (repo / "data" / "cifar-10-batches-py").exists() or
              not (repo / "data" / "cifar-100-python").exists() or
              not (repo / "data" / "svhn").exists())
-    if needs:
+    if DATA_CACHE:
+        link_cached(repo / "data" / "cifar-10-batches-py", "cifar10", "cifar-10-batches-py")
+        link_cached(repo / "data" / "cifar-100-python", "cifar100", "cifar-100-python")
+        link_cached(repo / "data" / "svhn" / "test_32x32.mat", "svhn", "test_32x32.mat")
+    elif needs:
         info("downloading CIFAR-10/100 + SVHN for openood")
         uv_run("openood", f"""
 import torchvision
@@ -484,7 +627,7 @@ torchvision.datasets.CIFAR10(root=r'{repo/"data"}', train=False, download=True)
 torchvision.datasets.CIFAR100(root=r'{repo/"data"}', train=False, download=True)
 torchvision.datasets.SVHN(root=r'{repo/"data"/"svhn"}', split='test', download=True)
 """)
-        git_commit_data(repo, ["data/"], "add cifar-10/100 and svhn datasets for agent benchmark")
+    git_commit_data(repo, ["data/"], "add cifar-10/100 and svhn datasets for agent benchmark")
 
 
 def setup_federated_learning_pfllib(args):
@@ -500,7 +643,7 @@ def setup_federated_learning_pfllib(args):
         run(["bash", "-lc",
              "source $(conda info --base)/etc/profile.d/conda.sh && conda activate pfllib && "
              "python generate_Cifar10.py noniid - dir"], cwd=repo / "dataset")
-        git_commit_data(repo, ["dataset/"], "add cifar10 federated dataset")
+    git_commit_data(repo, ["dataset/"], "add cifar10 federated dataset")
 
 
 def setup_unlearning(args):
@@ -702,6 +845,10 @@ def parse_args():
     p.add_argument("--skip-envs", action="store_true", help="Skip conda env creation.")
     p.add_argument("--skip-data", action="store_true",
                    help="Skip dataset downloads (clones repos and creates envs only).")
+    p.add_argument("--data-cache", default=os.environ.get("FMLBENCH_DATA_CACHE"),
+                   help="Shared dataset cache dir (default: $FMLBENCH_DATA_CACHE; unset = per-task "
+                        "copies as before). Missing datasets are fetched into it; the workspaces get "
+                        "symlinks into it, committed to the task repos.")
     p.add_argument("--skip-workspaces", action="store_true",
                    help="Skip workspace setup (clones, datasets); useful with --skip-data --skip-envs=false.")
     return p.parse_args()
@@ -742,6 +889,12 @@ def main():
                 envs_needed.append(e)
 
     check_prereqs(envs_needed, args.skip_envs)
+
+    global DATA_CACHE
+    if args.data_cache:
+        DATA_CACHE = Path(args.data_cache).expanduser().resolve()
+        DATA_CACHE.mkdir(parents=True, exist_ok=True)
+        info(f"using shared data cache {DATA_CACHE}")
 
     if not args.skip_envs:
         info("=" * 60)

@@ -1,7 +1,0 @@
-task=Data_Efficiency_usb env=usb gpu='1'
-copy=workspace/Data_Efficiency_usb__rebaseline_20261103_083515
-repo HEAD: 9c9e33a add cifar-100 dataset for agent benchmark; changes: 0
-== VAL start Tue Nov  3 08:35:33 UTC 2026
-== VAL end Tue Nov  3 08:50:13 UTC 2026 rc=0
-== TEST start Tue Nov  3 08:50:13 UTC 2026
-== TEST end Tue Nov  3 08:50:18 UTC 2026 rc=0

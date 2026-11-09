@@ -1,266 +1,0 @@
-2026-11-02 12:20:51.866355: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX2 AVX512F AVX512_VNNI AVX512_BF16 AVX_VNNI AMX_TILE AMX_INT8 AMX_BF16 FMA
-To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
-2026-11-02 12:20:51.979818: I tensorflow/core/util/util.cc:169] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
-2026-11-02 12:20:51.986089: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libcudart.so.11.0'; dlerror: libcudart.so.11.0: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib:/opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib
-2026-11-02 12:20:51.986114: I tensorflow/stream_executor/cuda/cudart_stub.cc:29] Ignore above cudart dlerror if you do not have a GPU set up on your machine.
-2026-11-02 12:20:52.021535: E tensorflow/stream_executor/cuda/cuda_blas.cc:2981] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
-2026-11-02 12:20:52.504713: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libnvinfer.so.7'; dlerror: libnvinfer.so.7: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib:/opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib
-2026-11-02 12:20:52.504766: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libnvinfer_plugin.so.7'; dlerror: libnvinfer_plugin.so.7: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib:/opt/amazon/openmpi/lib64:/opt/amazon/efa/lib64:/opt/amazon/ofi-nccl/lib64:/usr/local/lib:/usr/lib:/lib
-2026-11-02 12:20:52.504772: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Cannot dlopen some TensorRT libraries. If you would like to use Nvidia GPU with TensorRT, please make sure the missing libraries mentioned above are installed properly.
-2026-11-02 12:20:53.094102: E tensorflow/stream_executor/cuda/cuda_driver.cc:265] failed call to cuInit: CUDA_ERROR_NO_DEVICE: no CUDA-capable device is detected
-2026-11-02 12:20:53.094154: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:169] retrieving CUDA diagnostic information for host: ip-172-31-2-95.us-west-2.compute.internal
-2026-11-02 12:20:53.094161: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:176] hostname: ip-172-31-2-95.us-west-2.compute.internal
-2026-11-02 12:20:53.094208: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:200] libcuda reported version is: 580.126.16
-2026-11-02 12:20:53.094229: I tensorflow/stream_executor/cuda/cuda_diagnostics.cc:204] kernel reported version is: NOT_FOUND: could not find kernel module information in driver version file contents: "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  580.126.16  Release Build  (dvs-builder@U22-I3-B08-02-3)  Sat Jan 31 03:18:57 UTC 2026
-GCC version:  gcc version 11.5.0 20240719 (Red Hat 11.5.0-5) (GCC) 
-"
-Visible pool: 10504, Hidden test: 6996
-Agent train: 8404, Agent val: 2100
-split_config: val_ratio=0.2, val_seed=42
-
-================================================================================
-COMPREHENSIVE BACKDOOR ATTACK EVALUATION
-Training samples: 8404, Poison rate: 0.33
-Testing 5 different backdoor types
-================================================================================
-
-
-################################################################################
-Backdoor Type 1/5: pattern
-Description: Classic 4-pixel checkerboard in bottom-right corner
-################################################################################
-
-Model: "sequential"
-_________________________________________________________________
- Layer (type)                Output Shape              Param #   
-=================================================================
- conv2d (Conv2D)             (None, 26, 26, 32)        320       
-                                                                 
- conv2d_1 (Conv2D)           (None, 24, 24, 64)        18496     
-                                                                 
- max_pooling2d (MaxPooling2D  (None, 12, 12, 64)       0         
- )                                                               
-                                                                 
- dropout (Dropout)           (None, 12, 12, 64)        0         
-                                                                 
- flatten (Flatten)           (None, 9216)              0         
-                                                                 
- dense (Dense)               (None, 128)               1179776   
-                                                                 
- dropout_1 (Dropout)         (None, 128)               0         
-                                                                 
- dense_1 (Dense)             (None, 10)                1290      
-                                                                 
-=================================================================
-Total params: 1,199,882
-Trainable params: 1,199,882
-Non-trainable params: 0
-_________________________________________________________________
-Training model with DP-InstaHide defense...
-DP-InstaHide training epochs:   0%|          | 0/5 [00:00<?, ?it/s]2026-11-02 12:21:01.996841: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX2 AVX512F AVX512_VNNI AVX512_BF16 AVX_VNNI AMX_TILE AMX_INT8 AMX_BF16 FMA
-To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
-2026-11-02 12:21:02.015414: I tensorflow/compiler/mlir/mlir_graph_optimization_pass.cc:354] MLIR V1 optimization pass is not enabled
-DP-InstaHide training epochs:  20%|██        | 1/5 [00:06<00:26,  6.51s/it]DP-InstaHide training epochs:  40%|████      | 2/5 [00:14<00:21,  7.23s/it]DP-InstaHide training epochs:  60%|██████    | 3/5 [00:24<00:17,  8.54s/it]DP-InstaHide training epochs:  80%|████████  | 4/5 [00:36<00:09,  9.88s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:50<00:00, 11.51s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:50<00:00, 10.14s/it]
-Saved trained model to model_checkpoint/model_pattern.h5
-
-Results for pattern:
-  Clean Accuracy:    95.29%
-  Attack Success:    60.83%
-  Resist Accuracy:   39.17%
-  Defense Score:     55.52%
-
-################################################################################
-Backdoor Type 2/5: distributed
-Description: Distributed 2x2 patterns in 4 regions (not corner-focused)
-################################################################################
-
-Model: "sequential"
-_________________________________________________________________
- Layer (type)                Output Shape              Param #   
-=================================================================
- conv2d (Conv2D)             (None, 26, 26, 32)        320       
-                                                                 
- conv2d_1 (Conv2D)           (None, 24, 24, 64)        18496     
-                                                                 
- max_pooling2d (MaxPooling2D  (None, 12, 12, 64)       0         
- )                                                               
-                                                                 
- dropout (Dropout)           (None, 12, 12, 64)        0         
-                                                                 
- flatten (Flatten)           (None, 9216)              0         
-                                                                 
- dense (Dense)               (None, 128)               1179776   
-                                                                 
- dropout_1 (Dropout)         (None, 128)               0         
-                                                                 
- dense_1 (Dense)             (None, 10)                1290      
-                                                                 
-=================================================================
-Total params: 1,199,882
-Trainable params: 1,199,882
-Non-trainable params: 0
-_________________________________________________________________
-Training model with DP-InstaHide defense...
-DP-InstaHide training epochs:   0%|          | 0/5 [00:00<?, ?it/s]DP-InstaHide training epochs:  20%|██        | 1/5 [00:06<00:27,  6.94s/it]DP-InstaHide training epochs:  40%|████      | 2/5 [00:15<00:23,  7.91s/it]DP-InstaHide training epochs:  60%|██████    | 3/5 [00:26<00:18,  9.12s/it]DP-InstaHide training epochs:  80%|████████  | 4/5 [00:38<00:10, 10.57s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:56<00:00, 12.98s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:56<00:00, 11.23s/it]
-Saved trained model to model_checkpoint/model_distributed.h5
-
-Results for distributed:
-  Clean Accuracy:    96.14%
-  Attack Success:    89.26%
-  Resist Accuracy:   10.74%
-  Defense Score:     19.31%
-
-################################################################################
-Backdoor Type 3/5: edge
-Description: Edge-based trigger on top and right borders
-################################################################################
-
-Model: "sequential"
-_________________________________________________________________
- Layer (type)                Output Shape              Param #   
-=================================================================
- conv2d (Conv2D)             (None, 26, 26, 32)        320       
-                                                                 
- conv2d_1 (Conv2D)           (None, 24, 24, 64)        18496     
-                                                                 
- max_pooling2d (MaxPooling2D  (None, 12, 12, 64)       0         
- )                                                               
-                                                                 
- dropout (Dropout)           (None, 12, 12, 64)        0         
-                                                                 
- flatten (Flatten)           (None, 9216)              0         
-                                                                 
- dense (Dense)               (None, 128)               1179776   
-                                                                 
- dropout_1 (Dropout)         (None, 128)               0         
-                                                                 
- dense_1 (Dense)             (None, 10)                1290      
-                                                                 
-=================================================================
-Total params: 1,199,882
-Trainable params: 1,199,882
-Non-trainable params: 0
-_________________________________________________________________
-Training model with DP-InstaHide defense...
-DP-InstaHide training epochs:   0%|          | 0/5 [00:00<?, ?it/s]DP-InstaHide training epochs:  20%|██        | 1/5 [00:07<00:29,  7.33s/it]DP-InstaHide training epochs:  40%|████      | 2/5 [00:16<00:25,  8.49s/it]DP-InstaHide training epochs:  60%|██████    | 3/5 [00:27<00:19,  9.78s/it]DP-InstaHide training epochs:  80%|████████  | 4/5 [00:41<00:11, 11.41s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:57<00:00, 12.76s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:57<00:00, 11.40s/it]
-Saved trained model to model_checkpoint/model_edge.h5
-
-Results for edge:
-  Clean Accuracy:    95.19%
-  Attack Success:    89.85%
-  Resist Accuracy:   10.15%
-  Defense Score:     18.35%
-
-################################################################################
-Backdoor Type 4/5: random_corner
-Description: Checkerboard in random corner (prevents fixed-position bias)
-################################################################################
-
-Model: "sequential"
-_________________________________________________________________
- Layer (type)                Output Shape              Param #   
-=================================================================
- conv2d (Conv2D)             (None, 26, 26, 32)        320       
-                                                                 
- conv2d_1 (Conv2D)           (None, 24, 24, 64)        18496     
-                                                                 
- max_pooling2d (MaxPooling2D  (None, 12, 12, 64)       0         
- )                                                               
-                                                                 
- dropout (Dropout)           (None, 12, 12, 64)        0         
-                                                                 
- flatten (Flatten)           (None, 9216)              0         
-                                                                 
- dense (Dense)               (None, 128)               1179776   
-                                                                 
- dropout_1 (Dropout)         (None, 128)               0         
-                                                                 
- dense_1 (Dense)             (None, 10)                1290      
-                                                                 
-=================================================================
-Total params: 1,199,882
-Trainable params: 1,199,882
-Non-trainable params: 0
-_________________________________________________________________
-Training model with DP-InstaHide defense...
-DP-InstaHide training epochs:   0%|          | 0/5 [00:00<?, ?it/s]DP-InstaHide training epochs:  20%|██        | 1/5 [00:07<00:31,  7.84s/it]DP-InstaHide training epochs:  40%|████      | 2/5 [00:16<00:25,  8.41s/it]DP-InstaHide training epochs:  60%|██████    | 3/5 [00:27<00:18,  9.45s/it]DP-InstaHide training epochs:  80%|████████  | 4/5 [00:39<00:10, 10.67s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:54<00:00, 12.27s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:54<00:00, 11.00s/it]
-Saved trained model to model_checkpoint/model_random_corner.h5
-
-Results for random_corner:
-  Clean Accuracy:    95.14%
-  Attack Success:    84.33%
-  Resist Accuracy:   15.67%
-  Defense Score:     26.90%
-
-################################################################################
-Backdoor Type 5/5: pattern_topleft
-Description: Checkerboard in top-left corner (tests positional invariance)
-################################################################################
-
-Model: "sequential"
-_________________________________________________________________
- Layer (type)                Output Shape              Param #   
-=================================================================
- conv2d (Conv2D)             (None, 26, 26, 32)        320       
-                                                                 
- conv2d_1 (Conv2D)           (None, 24, 24, 64)        18496     
-                                                                 
- max_pooling2d (MaxPooling2D  (None, 12, 12, 64)       0         
- )                                                               
-                                                                 
- dropout (Dropout)           (None, 12, 12, 64)        0         
-                                                                 
- flatten (Flatten)           (None, 9216)              0         
-                                                                 
- dense (Dense)               (None, 128)               1179776   
-                                                                 
- dropout_1 (Dropout)         (None, 128)               0         
-                                                                 
- dense_1 (Dense)             (None, 10)                1290      
-                                                                 
-=================================================================
-Total params: 1,199,882
-Trainable params: 1,199,882
-Non-trainable params: 0
-_________________________________________________________________
-Training model with DP-InstaHide defense...
-DP-InstaHide training epochs:   0%|          | 0/5 [00:00<?, ?it/s]DP-InstaHide training epochs:  20%|██        | 1/5 [00:07<00:30,  7.60s/it]DP-InstaHide training epochs:  40%|████      | 2/5 [00:17<00:26,  8.76s/it]DP-InstaHide training epochs:  60%|██████    | 3/5 [00:28<00:19,  9.83s/it]DP-InstaHide training epochs:  80%|████████  | 4/5 [00:41<00:11, 11.29s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:56<00:00, 12.60s/it]DP-InstaHide training epochs: 100%|██████████| 5/5 [00:56<00:00, 11.34s/it]
-Saved trained model to model_checkpoint/model_pattern_topleft.h5
-
-Results for pattern_topleft:
-  Clean Accuracy:    96.14%
-  Attack Success:    82.11%
-  Resist Accuracy:   17.89%
-  Defense Score:     30.17%
-
-
-================================================================================
-AGGREGATE RESULTS ACROSS ALL BACKDOOR TYPES
-================================================================================
-
-Mean Metrics:
-  Clean Accuracy:    95.58%
-  Attack Success:    81.28%
-  Resist Accuracy:   18.72%
-  Defense Score:     30.05%
-
-Worst-Case Metrics:
-  Min Defense Score: 18.35%
-  Min Clean Acc:     95.14%
-  Max Attack Success:89.85%
-
-Individual Results:
-  pattern      - Defense Score: 55.52%
-  distributed  - Defense Score: 19.31%
-  edge         - Defense Score: 18.35%
-  random_corner - Defense Score: 26.90%
-  pattern_topleft - Defense Score: 30.17%
-
-
-Saved results to results_tmp/val_info.json
-================================================================================
-
-
-real	4m50.696s
-user	14m2.811s
-sys	0m25.403s

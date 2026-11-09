@@ -2,16 +2,16 @@
   "openood": {
     "ood_dataset": "SVHN",
     "means": {
-      "auroc_mean": 0.9211928714285713,
-      "fpr95_mean": 0.5864
+      "auroc_mean": 0.9027715,
+      "fpr95_mean": 0.6218
     },
     "stderrs": {
       "auroc_stderr": 0.0,
       "fpr95_stderr": 0.0
     },
     "final_info_dict": {
-      "auroc": 0.9211928714285713,
-      "fpr95": 0.5864
+      "auroc": 0.9027715,
+      "fpr95": 0.6218
     }
   }
 }

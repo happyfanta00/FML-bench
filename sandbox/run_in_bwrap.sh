@@ -14,6 +14,8 @@
 #   - uv-managed CPython  read-only   (the venvs symlink their interpreter here; any other
 #                                      base-interpreter prefix a venv points at is bound too)
 #   - ~/.cache            read-write  (pretrained-weight caches: torch hub, HF, ...)
+#   - data cache          read-only   ($FMLBENCH_DATA_CACHE, plus the target of every absolute
+#                                      symlink in the task templates, e.g. setup.py --data-cache)
 #   - /usr, /etc, /sys    read-only;  fresh /proc, /dev, /tmp, /dev/shm and an empty $HOME
 #   - NVIDIA device nodes; CUDA_VISIBLE_DEVICES is passed through (unset: all GPUs; "" hides them)
 #   - network is shared: Bedrock is reached over HTTPS with the instance-role credentials
@@ -84,6 +86,21 @@ for cfg in "$UV_ENVS"/*/pyvenv.cfg; do
   prefix=$(dirname "$home")
   [[ $prefix == /usr || $prefix == "$UV_PYTHON"/* ]] || args+=(--ro-bind-try "$prefix" "$prefix")
 done
+# Datasets symlinked into the workspaces from a shared cache (setup.py --data-cache): bind the
+# cache read-only so the links resolve and agent code cannot modify the shared copy. The cache is
+# $FMLBENCH_DATA_CACHE if set; any other absolute symlink target found in the task templates
+# (workspace/<TASK>/, not the per-run copies) is bound as well.
+data_ro=()
+[[ -n ${FMLBENCH_DATA_CACHE:-} && -d $FMLBENCH_DATA_CACHE ]] && data_ro+=("$(realpath "$FMLBENCH_DATA_CACHE")")
+while IFS= read -r -d '' link; do
+  tgt=$(realpath -e "$link" 2>/dev/null) || { echo "warning: dangling data symlink $link" >&2; continue; }
+  covered=0
+  for c in "${data_ro[@]}" "$ROOT" "$UV_ENVS" "$UV_PYTHON"; do
+    [[ $tgt == "$c" || $tgt == "$c"/* ]] && { covered=1; break; }
+  done
+  ((covered)) || data_ro+=("$tgt")
+done < <(find "$ROOT"/workspace/*/ -maxdepth 5 -path '*__*' -prune -o -type l -lname '/*' -print0 2>/dev/null)
+for p in "${data_ro[@]}"; do args+=(--ro-bind "$p" "$p"); done
 for d in /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset /dev/nvidia[0-9]*; do
   [[ -e $d ]] && args+=(--dev-bind "$d" "$d")
 done

@@ -1,7 +1,0 @@
-task=Generalization_domainbed env=domainbed gpu='1'
-copy=workspace/Generalization_domainbed__rebaseline_20261103_083515
-repo HEAD: b93c22a Merge pull request #156 from kiranchari/URM; changes: 0
-== VAL start Tue Nov  3 08:35:16 UTC 2026
-== VAL end Tue Nov  3 08:40:04 UTC 2026 rc=0
-== TEST start Tue Nov  3 08:40:04 UTC 2026
-== TEST end Tue Nov  3 08:40:04 UTC 2026 rc=0

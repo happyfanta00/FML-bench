@@ -2,7 +2,7 @@
   "cifar10_dp": {
     "means": {
       "test_acc_mean": 0.587047619047619,
-      "epsilon_mean": 7.999583442821972
+      "epsilon_mean": 7.999583442821979
     },
     "stderrs": {
       "test_acc_stderr": 0.0,
@@ -10,7 +10,7 @@
     },
     "final_info_dict": {
       "test_acc": 0.587047619047619,
-      "epsilon": 7.999583442821972
+      "epsilon": 7.999583442821979
     }
   }
 }

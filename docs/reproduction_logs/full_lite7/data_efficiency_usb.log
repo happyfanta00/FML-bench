@@ -1,654 +1,0 @@
-Override: agent.ai_scientist_v2.max_steps = 100
-Override: agent.ai_scientist_v2.execute_timeout = 4800
-Override: agent.model = us.anthropic.claude-opus-5-5
-Override: agent.provider = AnthropicBedrock
-Initializing ai_scientist_v2 agent...
-Using Amazon Bedrock (us-west-2) with model us.anthropic.claude-opus-5-5.
-
-=== Running ai_scientist_v2 on Data_Efficiency_usb ===
-Model: us.anthropic.claude-opus-5-5 (Provider: AnthropicBedrock)
-Preparing workspace: Copying workspace from workspace/Data_Efficiency_usb to workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025
-Created workspace copy: workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025
-Starting benchmark: Data_Efficiency_usb
-Available datasets in results: ['cifar100_ssl']
-Available metrics in results: ['test_acc_mean']
-Filtering datasets to: ['cifar100_ssl']
-Filtering metrics to: ['test_acc_mean']
-Filtered results keys: ['cifar100_ssl']
-Updating files:   2% (37/1311)Updating files:   3% (40/1311)Updating files:   4% (53/1311)Updating files:   5% (66/1311)Updating files:   6% (79/1311)Updating files:   6% (86/1311)Updating files:   7% (92/1311)Updating files:   8% (105/1311)Updating files:   9% (118/1311)Updating files:  10% (132/1311)Updating files:  11% (145/1311)Updating files:  11% (148/1311)Updating files:  12% (158/1311)Updating files:  13% (171/1311)Updating files:  14% (184/1311)Updating files:  15% (197/1311)Updating files:  16% (210/1311)Updating files:  16% (218/1311)Updating files:  17% (223/1311)Updating files:  18% (236/1311)Updating files:  19% (250/1311)Updating files:  20% (263/1311)Updating files:  21% (276/1311)Updating files:  21% (286/1311)Updating files:  22% (289/1311)Updating files:  23% (302/1311)Updating files:  24% (315/1311)Updating files:  25% (328/1311)Updating files:  26% (341/1311)Updating files:  26% (352/1311)Updating files:  27% (354/1311)Updating files:  28% (368/1311)Updating files:  29% (381/1311)Updating files:  30% (394/1311)Updating files:  31% (407/1311)Updating files:  32% (420/1311)Updating files:  32% (422/1311)Updating files:  33% (433/1311)Updating files:  34% (446/1311)Updating files:  35% (459/1311)Updating files:  36% (472/1311)Updating files:  37% (486/1311)Updating files:  37% (490/1311)Updating files:  38% (499/1311)Updating files:  39% (512/1311)Updating files:  40% (525/1311)Updating files:  41% (538/1311)Updating files:  42% (551/1311)Updating files:  42% (559/1311)Updating files:  43% (564/1311)Updating files:  44% (577/1311)Updating files:  45% (590/1311)Updating files:  46% (604/1311)Updating files:  47% (617/1311)Updating files:  48% (630/1311)Updating files:  49% (643/1311)Updating files:  50% (656/1311)Updating files:  51% (669/1311)Updating files:  52% (682/1311)Updating files:  53% (695/1311)Updating files:  53% (700/1311)Updating files:  54% (708/1311)Updating files:  55% (722/1311)Updating files:  56% (735/1311)Updating files:  57% (748/1311)Updating files:  58% (761/1311)Updating files:  58% (769/1311)Updating files:  59% (774/1311)Updating files:  60% (787/1311)Updating files:  61% (800/1311)Updating files:  62% (813/1311)Updating files:  63% (826/1311)Updating files:  63% (838/1311)Updating files:  64% (840/1311)Updating files:  65% (853/1311)Updating files:  66% (866/1311)Updating files:  67% (879/1311)Updating files:  68% (892/1311)Updating files:  69% (905/1311)Updating files:  70% (918/1311)Updating files:  71% (931/1311)Updating files:  72% (944/1311)Updating files:  73% (958/1311)Updating files:  74% (971/1311)Updating files:  74% (975/1311)Updating files:  75% (984/1311)Updating files:  76% (997/1311)Updating files:  77% (1010/1311)Updating files:  78% (1023/1311)Updating files:  79% (1036/1311)Updating files:  79% (1043/1311)Updating files:  80% (1049/1311)Updating files:  81% (1062/1311)Updating files:  82% (1076/1311)Updating files:  83% (1089/1311)Updating files:  84% (1102/1311)Updating files:  84% (1113/1311)Updating files:  85% (1115/1311)Updating files:  85% (1122/1311)Updating files:  86% (1128/1311)Updating files:  86% (1139/1311)Updating files:  87% (1141/1311)Updating files:  88% (1154/1311)Updating files:  89% (1167/1311)Updating files:  90% (1180/1311)Updating files:  91% (1194/1311)Updating files:  91% (1202/1311)Updating files:  92% (1207/1311)Updating files:  93% (1220/1311)Updating files:  94% (1233/1311)Updating files:  95% (1246/1311)Updating files:  96% (1259/1311)Updating files:  96% (1268/1311)Updating files:  97% (1272/1311)Updating files:  98% (1285/1311)Updating files:  99% (1298/1311)Updating files: 100% (1311/1311)Updating files: 100% (1311/1311), done.
-HEAD is now at cbff9fc add cifar-100 dataset for agent benchmark
-Git repository reset to clean state
-AI-Scientist-v2 workspace: benchmark_results/ai_scientist_v2/Data_Efficiency_usb/20261103_064812_1a9f7c8e/20261103_064812_1a9f7c8e_bfts
-Using Amazon Bedrock (us-west-2) with model us.anthropic.claude-opus-5-5.
-[AI-Scientist-v2] seed_ideas.json not found at ml_tasks/Data_Efficiency_usb/theaiscientist/seed_ideas.json, falling back to pure BFTS without idea constraints (num_drafts=3)
-
-============================================================
-Stage 1/4: basic_implementation (budget=10, mode=BFTS(drafts=3))
-============================================================
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 682.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 743.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 804.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 707.1 s (returncode 0)
-  Sub-stage 2: **Next Sub-Stage Goals: Diagnose Near-Chance Accuracy Before Anything Else**
-
-The best test accuracy...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 928.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1201.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1069.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1025.1 s (returncode 0)
-  Sub-stage 3: The best `test_acc_mean` is 0.109 across 8 runs. For a 10-class task, chance is 0.10, so the model i...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1124.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1399.1 s (returncode 0)
-Stage 1 (basic_implementation): 10 steps, best=0.131
-
-============================================================
-Stage 2/4: hyperparameter_tuning (budget=20, mode=force-improve)
-============================================================
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1562.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1075.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1340.5 s (returncode 0)
-  Sub-stage 2: ## Next Sub-Stage Goals: Diagnose Near-Chance Performance, Then Run a Systematic Hyperparameter Swee...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1380.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1379.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1370.5 s (returncode 0)
-  Sub-stage 3: **Next sub-stage goals**
-
-1. **Diagnose before tuning.** Across all 6 runs, record train accuracy, v...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1574.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1386.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1397.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1331.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1314.3 s (returncode 0)
-  Sub-stage 4: **Next Sub-Stage Goals: Diagnose Underfitting, Then Tune Systematically**
-
-1. **Find out why accurac...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1329.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1372.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1286.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1258.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1462.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1311.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1251.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1167.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1118.2 s (returncode 0)
-Stage 2 (hyperparameter_tuning): 20 steps, best=0.13166666666666665
-
-============================================================
-Stage 3/4: creative_research (budget=50, mode=BFTS(drafts=1))
-============================================================
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 699.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 633.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 587.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 926.8 s (returncode 0)
-  Sub-stage 2: **Next sub-stage goals**
-
-1. **Treat 0.0997 as a failure and debug the pipeline first.** A best test...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1212.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 703.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 871.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 706.0 s (returncode 0)
-  Sub-stage 3: ## Next Sub-Stage Goals
-
-1. **Check whether the model is learning at all.** Compare the 0.129 test a...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1157.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 749.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 788.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 950.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1175.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 676.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1210.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 793.9 s (returncode 0)
-  Sub-stage 4: # Next Sub-Stage Goals
-
-I don't know the task, dataset, number of classes, or which ideas the 16 run...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1299.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1338.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 773.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1138.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1345.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1479.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1266.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 837.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1371.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1410.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1174.3 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1088.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1046.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1394.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1319.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1538.4 s (returncode 0)
-  Sub-stage 5: ## Goals for the Next Sub-Stage
-
-I don't have the task, dataset, number of classes, or history of th...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1038.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1247.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1343.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1699.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1173.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 871.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1039.9 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1147.2 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1019.0 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 864.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1024.7 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1140.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1043.0 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 872.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1028.6 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 898.1 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1033.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 877.1 s (returncode 0)
-Stage 3 (creative_research): 50 steps, best=0.16766666666666666
-
-============================================================
-Stage 4/4: ablation_refinement (budget=20, mode=force-improve)
-============================================================
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1037.4 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1028.5 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1049.7 s (returncode 0)
-  Sub-stage 2: # Goals for the Next Sub-Stage
-
-1. **Check that there is a real signal before ablating.** A best tes...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1039.6 s (returncode 0)
-  Sub-stage 3: **Next Sub-Stage Goals: Ablation and Simplification**
-
-1. **Check that the result is meaningful.** B...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1082.5 s (returncode 0)
-  Sub-stage 4: **Next Sub-Stage Goals: Component Ablation and Simplification**
-
-1. **Check that the gains are real....
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1041.6 s (returncode 0)
-  Sub-stage 5: **Goals for the next sub-stage: structured ablation and simplification**
-
-1. **Check that the curren...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1006.0 s (returncode 0)
-  Sub-stage 6: I don't know your task, its number of classes, or what your best solution's components are. So the g...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1018.3 s (returncode 0)
-  Sub-stage 7: **Next Sub-Stage Goals: Controlled Ablation of the Best Configuration**
-
-1. **Confirm the baseline b...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1026.2 s (returncode 0)
-  Sub-stage 8: **Next Sub-Stage Goals: Ablation Study and Simplification**
-
-1. **Check that there is a real signal ...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 1006.8 s (returncode 0)
-  Sub-stage 9: **Goals for the next sub-stage**
-
-1. **Establish reference points before ablating.** Measure chance-...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 996.6 s (returncode 0)
-  Sub-stage 10: **Goals for the next sub-stage**
-
-1. **Check that the result is real.** The best test_acc_mean is 0....
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 967.3 s (returncode 0)
-  Sub-stage 11: **Next sub-stage goals:**
-
-1. **Establish a reference point.** A best test_acc_mean of ~0.168 is low...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 925.4 s (returncode 0)
-  Sub-stage 12: **Goals for the Next Sub-Stage**
-
-1. **Check that the best result beats chance.** The best test_acc_...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 925.9 s (returncode 0)
-  Sub-stage 13: The best test_acc_mean of 0.1677 is almost exactly 1/6 (0.1667). Before investing in ablations, conf...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 945.9 s (returncode 0)
-  Sub-stage 14: **Goals for the next sub-stage:**
-
-1. Before running ablations, check that the best result (test_acc...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 948.6 s (returncode 0)
-  Sub-stage 15: **Goals for the next sub-stage:**
-
-1. **Check the baseline before any ablation.** The best test_acc_...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 944.7 s (returncode 0)
-  Sub-stage 16: **Next sub-stage goals**
-
-1. **Check the result against chance before ablating.** The best test_acc_...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 939.7 s (returncode 0)
-  Sub-stage 17: **Goals for the next sub-stage**
-
-1. **Check that the best result is a real signal.** The best test_...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 943.3 s (returncode 0)
-  Sub-stage 18: **Next sub-stage goals**
-
-1. **Establish whether the result is real.** Rerun the best configuration ...
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 936.8 s (returncode 0)
-Stage 4 (ablation_refinement): 20 steps, best=0.16766666666666666
-HEAD is now at cbff9fc add cifar-100 dataset for agent benchmark
-Removing model_checkpoint/
-Removing results_tmp/
-Removing train_eval_baseline.py
-Git repository reset to clean state
-Running val_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 940.8 s (returncode 0)
-Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning/results_tmp
-Running test_command: cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
-Running command: bash -c cp ../../../ml_tasks/Data_Efficiency_usb/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
-Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025/Semi-supervised-learning
-Command finished in 4.5 s (returncode 0)
-HEAD is now at cbff9fc add cifar-100 dataset for agent benchmark
-Removing model_checkpoint/
-Removing results_tmp/
-Removing train_eval_baseline.py
-Git repository reset to clean state
-Benchmark completed: Data_Efficiency_usb
-
-Summary saved to: benchmark_results/ai_scientist_v2/Data_Efficiency_usb/20261103_064812_1a9f7c8e/summary.json
-Configuration saved to: benchmark_results/ai_scientist_v2/Data_Efficiency_usb/20261103_064812_1a9f7c8e/config_used.yaml
-
-============================================================
-Results Summary
-============================================================
-Best Val Metric: 0.16766666666666666 (step 64, idea: ## Introduction
-You are an experienced AI researcher. You are provided with a previously developed implementation. Your task is to improve it based on the current experimental stage.
-
-## Memory
-# Summ)
-Test Metric: 0.17242857142857143
-Total Steps: 100
-Total Ideas: 8
-
-Token Usage: 2,465,265 total (prompt: 1,434,011, completion: 1,031,254)
-============================================================
-
-Done!
-Cleaning up copied workspace...
-Cleaned up workspace copy: workspace/Data_Efficiency_usb__opus55_20261103_064732_ca4c3025
