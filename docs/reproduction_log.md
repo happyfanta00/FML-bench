@@ -1,9 +1,9 @@
 # FML-bench 复现实验记录
 
-本文档记录在本机上复现 FML-bench 的过程：环境适配、baseline 重测、harness 改造（Bedrock / uv / 沙盒），以及 agent 测试结果。后续每次复现实验都追加到「实验记录」一节。
+本文档记录在本机上复现 FML-bench 的结果：环境适配、baseline 重测、harness 改造（Bedrock / uv / 沙盒）、agent 测试结果与快照检查（第 5 章），以及从零复现这些结果的完整流程（第 6 章）。
 
-- 仓库基线提交：`d336651`（以下改动均未提交，基于该提交的工作区）
-- 记录时间：2026-11-02 ～ 2026-11-03（第 8 节为第二台机器 4 × L4 上的复现）
+- 分支：`repro/bedrock-uv-sandbox`，基于 `d336651`
+- 记录时间：2026-11-02 ～ 2026-11-09（第 8 章为第二台机器 4 × L4 上的复现）
 
 ---
 
@@ -154,170 +154,118 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一沙盒里开 shell 或�
 
 ---
 
-## 5. 实验记录
+## 5. 实验结果
 
-### 5.1 ai_scientist_v2 × Privacy_opacus × Opus 5.5（2026-11-02 16:34 ～ 2026-11-03 04:55）
+### 5.1 ai_scientist_v2 × FML-bench-Lite × Opus 5.5
 
-**命令**（按 README 的标准协议，max_steps=100）：
+**设置**
 
-```bash
-CUDA_VISIBLE_DEVICES=0 sandbox/run_in_bwrap.sh \
-  --agent-config configs/agents/ai_scientist_v2.yaml \
-  --task-config  configs/tasks/privacy_opacus.yaml \
-  --model us.anthropic.claude-opus-5-5 --provider AnthropicBedrock \
-  --workspace-label opus55 agent.ai_scientist_v2.max_steps=100
-```
+- agent：ai_scientist_v2，参数用 `configs/agents/ai_scientist_v2.yaml` 的默认值。
+- 模型：Bedrock `us.anthropic.claude-opus-5-5`。
+- 每个任务跑 100 步，全部在沙盒（4.3）中运行。
+- baseline：本机重测值（第 3 章）。
+- 超时：opacus 用默认的 2400 秒；其余 7 个任务每两个共用一张卡，用 4800 秒。按 2400 秒的标准协议，只有 privacymeter 的 1 步会超时，而且不是最佳步，不影响结果。
+- 运行时间：2026-11-02 ～ 11-05。复现方法见第 6 章。
+- **已知问题**：ai_scientist_v2 的想法生成没有运行。`_generate_ideas` 找不到 `ml_tasks/<TASK>/theaiscientist/seed_ideas.json` 就直接跳过，而所有任务都没有这个文件。按决定没有修复，所以结果相当于纯树搜索。
 
-此前先做了一次 3 步的冒烟测试（`--output-dir benchmark_results_smoke`，`max_steps=3`），test 准确率 0.6313，全流程跑通。
+**结果**（NI 的定义和计算方法见 6.9）
 
-**结果**
+| 任务 | 指标 | baseline val / test | agent 最佳 val（被测步） | agent test | **NI** | NI（原始 baseline） |
+|---|---|---|---|---|---|---|
+| pycil | avg_incremental_acc ↑ | 0.5925 / 0.5944 | 0.7562（89） | 0.7571 | **0.1627** | 0.1619 |
+| usb | test_acc ↑ | 0.0827 / 0.0861 | 0.1677（64） | 0.1724 | **0.0863** | 0.0934 |
+| domainbed（ColoredMNIST） | in_acc ↑ | 0.2393 / 0.2501 | 0.7404（79） | 0.7527 | **0.5026** | 0.4658 |
+| officehome | avg_acc ↑ | 0.9011 / 0.8570 | 0.9203（17） | 0.8782 | **0.0212** | 0.0153 |
+| openood | auroc ↑ | 0.8804 / 0.9212 | 0.9204（55） | 0.9928 | **0.0716** | 0.0626 |
+| opacus | test_acc ↑ | 0.5881 / 0.5870 | 0.6911（88） | 0.6752 | **0.0882** | 0.0875 |
+| privacymeter | AUC_gap ↓ | 0.3242 / 0.3182 | 0.0011（57） | 0.0008 | **0.6347** | 0.6411 |
+| ART | defense_score ↑ | 0.3005 / 0.2921 | 0.9755（21） | 0.9740 | **0.6820** | 0.4966 |
+| **MEAN（Lite）** | | | | | **0.2812** | 0.2530 |
 
-| | val 准确率 | test 准确率 | ε |
-|---|---|---|---|
-| 新 baseline | 0.5881 | 0.5870 | 8.00 |
-| ai_scientist_v2 最优（第 88 步） | 0.6911 | **0.6752** | 7.9997 |
-| 提升 | +10.3 点 | **+8.8 点** | 预算内 |
+- **被测步**：最终 test 用的是最早达到最佳 val 的那一步的代码。val 相同时不替换：同一阶段内取第一个最大值，跨阶段时必须严格更好。
+- **原始 baseline 对照**：改用仓库原始的 baseline（`baseline_results/original/`）后，均值降到 0.253。差距主要来自 ART：本机 baseline 是 0.29，原始的是 0.48（第 3 章）。
+- **约束都满足**：
+  - privacymeter 的两个 TPR 都是 0，test 准确率 0.7515；
+  - opacus 的 ε 是 7.9997，在 8 的预算内。
+- **openood 的 test 高于 val**：这是任务设计如此，val 用 CIFAR-100 当 OOD 数据，test 用 SVHN。
+- **除去不能代表通用能力的任务**（见 5.2）：去掉利用题目先验的 domainbed，其余 7 个任务的平均 NI 约为 0.25；再去掉利用评测弱点的 privacymeter，约为 0.19。
+- **完整表格**：三张表（原始指标、NI、过程指标）的 CSV 在 `metric_reports/ai_scientist_v2_opus55_lite/`。结果目录是 `benchmark_results/ai_scientist_v2/<Task>/`，每个任务有一个主运行目录（含 `summary.json` 和 `step_snapshots/`）和一个 `*_final_test` 目录。
 
-- 4 个阶段的最优 val：基础实现 0.6365（10 步）→ 调参 0.6380（20 步）→ 创新探索 0.6876（50 步）→ 消融精炼 0.6911（20 步）。
-- 100 步全部成功运行，没有 LLM 调用失败、拒答或训练超时。
-- 最终 test 前会用最优代码重新训练一遍，得到的 val 是 0.6911，与搜索中完全一致（训练是确定性的）。
-- 耗时 12.3 小时（平均约 7 分钟/步）。token 共 2,164,265（输入 1,201,852，输出含思考 962,413）。按官方价格 $4/$20 每百万 token 估算约 $24，实际以 Bedrock 账单为准。
-- 结果目录：
-  - 搜索过程（100 步的代码快照 `step_snapshots/`、每步 val、code_editor 日志）和 `summary.json`：`benchmark_results/ai_scientist_v2/Privacy_opacus/20261102_163447_2a504f3e/`
-  - 最终 test：`benchmark_results/ai_scientist_v2/Privacy_opacus/20261103_044518/`
-  - 运行日志：`docs/reproduction_logs/aisv2_opacus_full.log`（冒烟测试：`docs/reproduction_logs/aisv2_smoke.log`）
+### 5.2 快照检查
 
-**agent 做了哪些改动**（每次刷新最好成绩时的关键改动；运行编号从 0 开始，对应快照 `step_<编号+1>`）
+**检查了什么**
 
-| 运行 | val | 改动 |
+1. **被测代码是哪一版**：按 5.1 的规则，确定每个任务被测的是哪一步的代码快照（`step_snapshots/step_NNNN_code.json`）。usb、domainbed、officehome 后面还有 val 相同、代码不同的步，那些没有被测。
+2. **全部快照的静态扫描**：扫描每个任务全部 100 步的快照，只看 agent 新增或改动的行，查找以下几类代码：
+   - 文件读写、数据路径；
+   - 网络访问和下载；
+   - 子进程、`exec`/`eval`；
+   - 环境变量读取。
+
+   没有命中。误报只有 `.eval()` 调用和个别 `setattr`。
+3. **被测步逐个阅读**：把被测步的代码和 baseline 做 diff，再对照各任务的评测脚本（`train_eval_baseline.py`、`eval.py`、`run_mia.py` 等）确认数据怎么流动。重点看三件事：
+   - 是否读取了 val/test 数据；
+   - 是否改动或绕过了评测接口；
+   - 是否违反任务约束，比如 DP 预算、样例预算、准确率下限。
+
+   val/test 命令会先用 `original_file_backup/` 里的文件覆盖评测相关代码，所以 agent 只能通过目标文件影响结果。
+
+这项检查是必要的，因为隐藏的 test 数据就在工作区里。比如 opacus 的 test 集是 CIFAR-10 训练集的一部分，划分种子固定，agent 生成的代码理论上能读到，沙盒和 code_editor 的危险代码检查都拦不住。
+
+**结论：8 个任务都没有读取 val/test 数据，也没有改动评测代码。** 但 domainbed 和 privacymeter 的提升不能当作通用方法能力来看：
+
+| 任务 | 被测代码做了什么 | 判断 |
 |---|---|---|
-| 0 | 0.6046 | 30 epoch；`split_config.json` 的 `val_ratio` 0.114 → 0.05 |
-| 3 | 0.6238 | batch 1024，lr 0.15 |
-| 5 | 0.6365 | Tramer & Boneh 风格的 6 层卷积网络，tanh 激活，去掉大的全连接层，50 epoch，lr 0.2 |
-| 34/35 | 0.6390 | 换路线：固定的 ScatterNet 散射特征（自己实现，J=2、L=8、二阶，243 通道）+ 小型 tanh CNN；60 epoch、lr 4.0、梯度裁剪 0.1、batch 4096 |
-| 38 | 0.6542 | 权重 EMA（后处理，不额外消耗隐私预算） |
-| 42 | 0.6754 | 水平翻转对称化（原图和镜像取 logits 平均） |
-| 46 | 0.6785 | 平移对称化（散射低通改为 stride 2，4 个子网格取平均） |
-| 58 | 0.6790 | 训练时 ±1 像素随机平移 |
-| 62 | 0.6841 | 每个视角独立平移（增强倍数，De et al. 2022） |
-| 74 | 0.6876 | 测试时增强，72 个视角取平均 |
-| 87 | 0.6911 | 去掉输入 GroupNorm 多余的可学习参数（少了 486 个要加噪声的参数） |
+| **domainbed** | ① 输入形状是 `(2, 28, 28)` 时，把两个颜色通道相加成灰度图，等于手工去掉了 ColoredMNIST 的伪特征（颜色）；② 用 GCE 损失，并按损失从小到大只保留一部分样本，针对的是 25% 的标签噪声；③ 加了仿射增强、双视图一致性、EMA 教师蒸馏，预测时对 1 像素平移取平均 | **利用题目先验**。任务说明点名了 ColoredMNIST，它的构造是公开的（IRM 论文）。test 0.7527 已经到了标签噪声决定的上限（约 75%） |
+| **privacymeter** | ① 把模型改成 4 个 WRN 子网络，按像素内容的确定性哈希 `h(x)` 分组：子网络 k 只用 `h(x) ≠ k` 的样本训练，推理时 `h(x) = k` 的输入交给子网络 k，因此任何查询都由一个没见过它的子网络回答（SELENA 中 Split-AI 的思路）；② eval 模式下只输出 top-1 类别，置信度固定（logit 差值为 2）；③ 加了翻转和裁剪增强，测试准确率 0.75，高于 0.61 的约束 | **符合规则，但利用了评测的弱点**。题目只要求做防御侧改动，这一点满足；参考模型也用同样的代码训练。但评测只做非自适应攻击：攻击者只要对成员样本稍加扰动，`h(x)` 就会变，查询有 3/4 的概率落到训练过这个样本的子网络上。所以 AUC_gap 接近 0 不代表真正抵御了成员推断。SELENA 原文正是为此再加了一步自蒸馏 |
+| ART | 先正常训练 2 个 epoch，然后用两种办法剔除样本：一是低置信度剔除，二是在倒数第二层特征上对每个类做 PCA 加 2-means，小簇占比低于 0.35 且轮廓系数达标时剔除整个小簇。剔除后从初始权重开始，用 DP-InstaHide 重新训练。`model.py` 和 `split_config.json` 没改 | **常规方法**，即 Chen et al. 2018 的 Activation Clustering。0.35 也是 ART 自带 `ActivationDefence` 的默认阈值。没有改评测时的 `predict` |
+| pycil | 第一个任务训练 4 个 ResNet-32 组成集成，带旋转辅助任务，之后冻结。后续任务不再训练骨干，只累加随机投影特征（12288 维）的 Gram 矩阵，用岭回归闭式求解分类器（RanPAC / ACIL 一类的解析式持续学习），λ 用训练集中留出的 1/5 来选 | 常规方法，不需要样例。训练时 `test_loader` 只用来打印日志，和原代码一样。注意两点：骨干参数变成了 4 倍；Gram 矩阵约 1.2 GB，远大于 2000 个样例的存储，但按无样例方法的惯例，不算违反样例预算 |
+| usb | WRN-28-4（原来是 28-2），EMA 评估，分布对齐，FreeMatch 自适应阈值，以及特征库上的伪标签平滑（SimMatch 一类） | 常规方法。实现上借用了接口：训练循环是固定的，agent 改不了，于是它让模型在 `training` 模式且 `no_grad` 下（也就是 harness 计算伪标签的那次前向）返回修正过的 logits，并改写最大概率，让外部固定的 0.95 阈值复现自适应阈值的效果。没有用到无标签数据的标签 |
+| openood | LogitNorm 训练，训练时把 layer2、layer3、layer4 的特征写入模型 buffer 作为特征库，打分用"翻转 TTA 后的 MSP − 多层 KNN 距离"，其中 layer2、layer3 的距离用 ID 数据的自身 KNN 统计量做了缩放 | 常规方法。特征库只在训练模式的前向里更新，harness 只在训练集上调用 `model.train()`，没有混入 OOD 数据。注释里写到"layer2 统计量对 SVHN 这类远 OOD 有用"，这个信息来自任务说明（说明里写了 test 用 SVHN），不是泄漏 |
+| officehome | 分类头学习率乘以 10，warmup 加 cosine 学习率，EMA，标签平滑 0.1 | 常规调参 |
+| opacus | 固定的 ScatterNet 特征加小型 tanh CNN（Tramer & Boneh 2021），EMA，翻转和相位对称化，每个视图独立抖动（augmentation multiplicity），推理时 72 视图 TTA。`val_ratio` 从 0.114 改为 0.05 | 常规方法。**DP 保证仍然成立**：同一个 head 在一次前向里被调用 8 次，Opacus 1.5.4 的 `GradSampleModule` 会把多次调用的逐样本梯度累加到同一个样本上，裁剪仍然按原始样本做。EMA 是对 DP 迭代结果的后处理，不额外消耗隐私预算。`val_ratio` 是任务允许修改的，改完之后训练集增加约 7%，所以 +8.8 点里有一小部分来自更多的训练数据。任务说明称 test "完全不受 split_config 影响"，这不准确 |
 
-**需要注意的地方**
+只有 privacymeter 的分数依赖于评测弱点。如果要堵住，需要改 benchmark，比如加入自适应攻击（对查询做扰动），已记在待办里。
 
-1. **想法生成没有运行（纯搜索模式）。** `agents/ai_scientist_v2/agent.py::_generate_ideas` 先检查 `ml_tasks/<TASK>/theaiscientist/seed_ideas.json`，没有任何任务提供这个文件，所以直接跳过了想法生成。而 `generate_ideas` 本身并不需要它（代码注释写着 seed ideas 早已移除），这很可能是个 bug。影响：第 1、2 阶段（30% 的步数）的草稿没有绑定研究想法。第 3、4 阶段即使开启想法生成也不受想法引导。`summary.json` 里的 "Total Ideas: 8" 统计的是起草次数，不是想法数。
-2. **`val_ratio` 改为 0.05。** `split_config.json` 在 `target_files` 里，prompt.json 也明确允许修改。改完之后训练集从 35,000 张增加到 37,525 张，val 集从 4,503 张缩小到 1,975 张（标准误约 1 个百分点，所以 val 比 test 高 1.6 点在预期之内）。prompt.json 里说 test "完全不受 split_config 影响"，这不准确：test 加载的是 val 阶段训练的模型，训练集大小正是由 `val_ratio` 决定的。所以 +8.8 点里有一小部分来自训练数据增加约 7%。
-3. **搜索过程只能看到 val。** test 只在搜索结束后运行一次，结果不回传给 agent。但隐藏 test 集就在工作区的 `./data` 里（它是 CIFAR-10 训练集的一部分，划分种子固定为 42），agent 生成的代码理论上可以读到；沙盒和 code_editor 的危险代码检查都拦不住。本次检查了全部 100 步的快照，`algorithm.py` 只导入了 torch/math/opacus，没有读取任何数据，没有发生泄漏。
-4. **推理代价变大。** 测试时增强让每张图要跑 72 次前向，任务没有限制这一点。
+### 5.3 autoresearch × FML-bench-Lite × Opus 5.5（进行中）
 
-### 5.2 冒烟测试：ai_scientist_v2 × 其余 7 个 Lite 任务 × Opus 5.5（2026-11-03 05:16 ～ 06:44）
+**设置**：和 5.1 相同，只是把 agent 换成 autoresearch（`configs/agents/autoresearch.yaml`），8 个任务的超时都用 4800 秒。2026-11-06 启动，结果待补。
 
-**做法**：每个任务跑 3 步，7 个任务同时启动，全部在沙盒中运行。
-
-- 输出目录：`benchmark_results_smoke/`，`--workspace-label smoke`。
-- 分配：GPU0 跑 pycil、domainbed、privacymeter；GPU1 跑 usb、officehome、openood；ART 设 `CUDA_VISIBLE_DEVICES=""`，只用 CPU。
-- 同时用 `scripts/reproduction/resource_monitor.py` 每 5 秒采样一次。
-- 日志和资源数据在 `docs/reproduction_logs/smoke_lite7/`。
-
-当时是手动逐个启动的。之后整理出的 `scripts/reproduction/run_smoke_lite.sh` 用的是同样的命令和分配，但这个脚本本身**还没有实际运行过**。
-
-**过程中发现并修复的问题**
-
-1. privacymeter 第一次启动立刻失败，报错 `No such file or directory: 'conda'`。
-   - 原因：建 privacy_meter 环境时，uv 选中了宿主机 `~/miniconda3` 里的 Python 3.12.9，而沙盒里看不到 miniconda，`env_command` 找不到解释器，就退回到了 conda。
-   - 修复：沙盒按每个环境 `pyvenv.cfg` 里的 `home` 字段，把对应的解释器前缀只读挂载进来（见 4.3）。环境本身没有重建，保证和测 baseline 时一致。
-   - 修复后重启 privacymeter（05:19）。失败的日志保留为 `Privacy_privacymeter.failed_conda.log`。
-2. 沙盒原来把 `CUDA_VISIBLE_DEVICES=""` 当成没设置，结果给了所有 GPU。已改为空字符串表示不给 GPU。
-3. 监控脚本的两个问题：
-   - GPU 编号映射写反了，已修正；
-   - 原来把各进程的 RSS 直接相加，DataLoader 子进程的共享内存被重复计算，domainbed 显示 57 GB，已改为 PSS。修正前的记录已从 csv 中删除。
-
-**结果**（每个任务都跑完了 3 步和最终 test）
-
-| 任务 | 新 baseline（val / test） | 冒烟测试（val / test） | 每步耗时（分钟，拥挤时） | 显存峰值 | 内存峰值（PSS） |
-|---|---|---|---|---|---|
-| pycil | 0.593 / 0.594 | 0.613 / 0.623 | 11.4 / 12.5 / 10.9 | 1.1 GB | 2.2 GB |
-| usb | 0.083 / 0.086 | 0.070 / 0.079 | 14.0 / 19.3 / 18.1 | 1.6 GB | 1.6 GB |
-| domainbed | 0.239 / 0.250 | 0.693 / 0.705 | 6.7 / 1.6 / 6.3 | 0.9 GB | 3.0 GB |
-| officehome | 0.901 / 0.857 | 0.909 / 0.874 | 24.2 / 24.4 / 约 20 | 10.6 GB | 7.9 GB |
-| privacymeter（越低越好） | 0.324 / 0.318 | 0.037 / 0.039 | 10.6 / 11.5 / 9.4 | 5.4 GB | 3.0 GB |
-| ART（CPU） | 0.301 / 0.292 | 0.931 / 0.931 | 5.9 / 6.4 / 5.3 | — | 1.5 GB |
-| openood | 0.880 / 0.921 | 0.914 / 0.986 | 13.9 / 18.3 / 18.7 | 2.0 GB | 2.5 GB |
-
-- **整体情况**：
-  - 单卡显存峰值：GPU0 7.3 GB，GPU1 14.2 GB。
-  - GPU 利用率：每卡 3 个任务时 GPU0 约 90%，GPU1 约 95%；officehome 单独跑也有 84～97%。所以**瓶颈是 GPU 算力，不是显存**。
-  - 没有超时，没有 Bedrock 限流。
-  - 7 个任务一共约 52 万 token。
-- **privacymeter**：第 1 步因为违反 TPR 约束被 `postprocess.py` 判为无效，这是任务规则在起作用。最好的一步用的是随机裁剪、翻转和 mixup，准确率从 0.611 升到 0.709。
-- **openood**：test 比 val 高是任务设计如此。val 用 CIFAR-100 当分布外数据，test 用 SVHN。
-- **domainbed（需要注意）**：第 1 步只有一次 code_editor 调用，没有想法输入。它写出的方法是：训练时随机交换红绿两个通道，预测时对两种通道顺序取平均。
-  - 模型看到的输入只有任务说明、两个目标文件和 baseline 数值，没有 `datasets.py`、数据或 val/test 结果，所以**没有 test 泄漏**。
-  - 但任务说明点名了 ColoredMNIST，这个数据集的构造是公开的（IRM 论文，颜色是伪特征，标签噪声 25%，上限约 75%）。agent 在下一步的分析里也直接写出了这些细节。
-  - 所以这个提升来自题目先验，不能代表通用的域泛化能力。
-- **ART（需要注意）**：
-  - 把图像外框 4 像素清空（后门触发器都放在角落和边缘），并剔除低置信度样本；
-  - 还改写了分类器的 `predict`，让评测时输入的图像也先清空外框。
-  - 没有读取 test 数据，但同样利用了题目先验，而且绕过了评测接口。
-- **usb**：3 步都没有超过 baseline。
-
-### 5.3 正式测试：ai_scientist_v2 × 其余 7 个 Lite 任务 × Opus 5.5（2026-11-03 06:47 启动，进行中）
-
-```bash
-setsid nohup scripts/reproduction/run_lite_queue.sh docs/reproduction_logs/full_lite7 \
-  > docs/reproduction_logs/full_lite7/queue.out 2>&1 < /dev/null &
-python3 scripts/reproduction/resource_monitor.py docs/reproduction_logs/full_lite7/resources.csv 10 &
-```
-
-- 参数：每个任务跑 100 步，`--workspace-label opus55`，输出到 `benchmark_results/`。
-- **超时改为 4800 秒**（`agent.ai_scientist_v2.execute_timeout=4800`，只在命令行覆盖）：
-  - 默认的 2400 秒是所有 agent 共用的协议，agent 的提示词里不会提到这个时限。
-  - 每卡跑 2 个任务时，同一份代码最坏会慢一倍，所以把超时加倍，相当于单独跑时仍有 40 分钟。
-  - 事后根据 `Command finished in X s` 统计有多少步超过 2400 秒，在结果里注明"按标准协议会有 N 步超时"。
-- **排队方式**：每卡 2 个位置，同一位置上的任务依次运行。估算工作量用的是 baseline 代码时的 val 耗时乘以 100 步。
-
-  | 设备 | 位置 A | 位置 B | GPU 工作量估算 |
-  |---|---|---|---|
-  | GPU0 | officehome | privacymeter → pycil | 约 2600 分钟 |
-  | GPU1 | usb | openood → domainbed | 约 2500 分钟 |
-  | CPU | ART | | |
-
-  每卡 2 个任务，是为了一个任务等 LLM 回复时，另一个正好用 GPU。officehome 最重，先和较轻的 privacymeter 搭配，降低超时风险。
-- **预计**：考虑到 opacus 后期每步耗时涨了约 3 倍（3.5 分钟涨到约 10 分钟），总时长约 2.5～4 天，费用约 $150～200。
-- **启动检查**：5 个位置都已启动，日志里打印了 `execute_timeout = 4800` 和 `max_steps = 100`。06:54 ART 第 1 步记录到 `Command finished in 284.4 s (returncode 0)`。`config_used.yaml` 要等任务结束才写出，届时再核对一次超时设置。
-- 结果待补充。
+**autoresearch 怎么工作**（Karpathy 的贪心爬山协议）：
+- 每一步由 LLM 根据当前最好的代码和历史实验表提出一个想法，改代码后跑 val。
+- val 严格优于当前最好值才保留，否则退回当前最好的代码；崩溃时最多调试 3 次。
+- 最终 test 用的是最早达到最佳 val 的那一步的代码，即使它没有超过 baseline 也照样跑 test，这时 NI 被截断为 0。
 
 ---
 
-## 6. 在新机器上重跑冒烟测试（5.2）
+## 6. 复现全流程
 
-以下步骤是根据本次的操作过程整理的。2026-11-03 已在第二台机器（4 × L4）上完整走过一遍，按当时发现的问题修订过，详见第 8 节。
+以下步骤从一台新机器开始，复现第 3 章的 baseline 和第 5 章的结果，最后算出 Normalized Improvement。6.1～6.7 已于 2026-11-03 在第二台机器（4 × L4）上完整走过一遍，见第 8 章。
 
 ### 6.1 前提条件
 
 | 项目 | 要求 |
 |---|---|
 | 系统 | Linux x86_64，内核允许非特权用户命名空间（bubblewrap 需要） |
-| GPU | NVIDIA，驱动需支持 CUDA 12.8（所有环境都是 torch 2.7.1+cu128，带 sm_75～sm_120 的 kernel，L4/sm_89 实测可用）。脚本默认用 2 张卡，冒烟测试每卡峰值约 15 GB；只有 1 张卡时设 `GPU_A=0 GPU_B=0`，卡数更多或更慢时用 `SMOKE_TASKS` 自定义分配（6.7）。**GPU 比 Blackwell 慢很多时要加大超时**，L4 上 officehome 的 baseline 单步就要 50 分钟（第 8 节） |
-| 命令 | `git`、`wget`、`unzip`、`curl`、`uv`、`bwrap`、`nvidia-smi`、`python3`。`conda` 和 `pip` 只在要建的环境里有 conda 环境时才需要（`setup.py` 已改为按需检查）；Lite 的 8 个任务都不需要 |
-| AWS | 能在 us-west-2（或通过 `AWS_REGION` 指定的区域）用 Bedrock 调用 `us.anthropic.claude-opus-5-5`，需要 InvokeModel / InvokeModelWithResponseStream 权限 |
-| AWS 凭证 | EC2 实例角色（沙盒共享网络，能访问 IMDS），或 `AWS_PROFILE`（沙盒会只读挂载 `~/.aws`），或 `AWS_ACCESS_KEY_ID` 等环境变量（沙盒会传入） |
-| 费用和时间 | 冒烟测试约 50 万 token，按官方价格估算约 $5，以 Bedrock 账单为准；两张卡上约 1.5 小时 |
+| GPU | NVIDIA，驱动需支持 CUDA 12.8。所有环境都是 torch 2.7.1+cu128，带 sm_75～sm_120 的 kernel，L4（sm_89）实测可用。下面的命令按 2 张卡分配，单卡峰值约 15 GB。**GPU 比 Blackwell 慢很多时要加大超时**：L4 上 officehome 的 baseline 单步就要 50 分钟（第 8 章） |
+| 命令 | `git`、`wget`、`unzip`、`curl`、`uv`、`bwrap`、`nvidia-smi`、`python3`。`conda` 和 `pip` 只在要建 conda 环境时才需要，Lite 的 8 个任务都不需要 |
+| AWS | 能在 us-west-2（或 `AWS_REGION` 指定的区域）用 Bedrock 调用 `us.anthropic.claude-opus-5-5`，需要 InvokeModel / InvokeModelWithResponseStream 权限 |
+| AWS 凭证 | 三选一：EC2 实例角色（沙盒共享网络，能访问 IMDS）；`AWS_PROFILE`（沙盒会只读挂载 `~/.aws`）；`AWS_ACCESS_KEY_ID` 等环境变量（沙盒会传入） |
+| 时间和费用 | 正式测试（6.8）在两张 Blackwell 上约 50 小时，ai_scientist_v2 共约 2530 万 token，按官方价格（输入 $4、输出 $20 每百万 token）估算约 $210，以 Bedrock 账单为准。冒烟测试（6.7）约 1.5 小时，约 50 万 token |
 
 ### 6.2 获取代码
-
-改动在 `repro/bedrock-uv-sandbox` 分支上，但**截至 2026-11-03 有一部分还没提交**，在新机器上重跑之前必须先提交并推送：
-
-- `sandbox/run_in_bwrap.sh`：`CUDA_VISIBLE_DEVICES=""` 的处理和解释器前缀挂载。缺了后者，privacymeter 会报 `conda` 找不到；
-- `benchmark/executor.py`：命令耗时记录；
-- `scripts/reproduction/`：`resource_monitor.py`、`run_smoke_lite.sh`、`run_lite_queue.sh`；
-- `ml_tasks/*/baseline_results/`：新 baseline 以及 `original/` 目录；
-- 本文档。
 
 ```bash
 git clone <仓库地址> FML-bench && cd FML-bench
 git checkout repro/bedrock-uv-sandbox
 ```
+
+复现所需的改动都已提交到这个分支：harness、沙盒、复现脚本和新 baseline（`83030f4`、`6ff6b53`、`74ff570`），以及之后的这些改动：
+
+- `compute_agent_metrics.py`：`--lite` 和 `--tasks`，6.9 只给 Lite 打分时要用；
+- `setup.py`：`'pyarrow<26'`。缺了它，打分时 scikit-learn 导入失败；
+- `scripts/reproduction/run_lite_queue.sh`：`AGENT` 和 `QUEUE_SLOTS`，6.8 要用；
+- `README.md` 和本文档。
 
 ### 6.3 构建环境
 
@@ -330,7 +278,8 @@ python3 setup.py --skip-data \
   --task Privacy_privacymeter --task Robustness_and_Reliability_art --task Robustness_openood
 ```
 
-- `UV_PYTHON_PREFERENCE=only-managed` 是 uv 自带的环境变量，不需要改 `setup.py`。本机建环境时没有设置它，所以 privacy_meter 用到了 miniconda 的 Python 3.12.9；设置后会用 uv 管理的 3.12.x，补丁版本可能不同。即使没设，沙盒的解释器挂载也能处理这种情况。
+- 这条命令同时建好 harness 环境 `fmlbench`，6.9 打分要用它。
+- `UV_PYTHON_PREFERENCE=only-managed` 是 uv 自带的环境变量，不需要改 `setup.py`。本机建环境时没有设置它，所以 privacy_meter 用到了 miniconda 的 Python 3.12.9；设置后会用 uv 管理的 3.12.x，补丁版本可能不同。即使没设，沙盒的解释器挂载（4.3）也能处理这种情况。
 - 环境建在本地盘上即可，本机是 NVMe 上的 `~/fml_envs`。
 
 ### 6.4 准备数据
@@ -338,28 +287,30 @@ python3 setup.py --skip-data \
 两种方式选一种：
 
 - **官方源**：直接运行上面的 `setup.py` 命令，但去掉 `--skip-data`。本机实测多伦多 CIFAR 服务器只有约 35 KB/s。
-- **镜像**：按第 2 节「数据」中的来源下载，放到对应位置，然后运行一次不带 `--skip-data` 的 `setup.py`。它会跳过已有的数据，完成后续处理（比如 privacymeter 的 pkl 生成）。之后：
-  - pycil 和 usb 需要**手动提交数据**，因为预先放好数据会跳过 setup 里的提交步骤，而 executor 每步都会 `git reset --hard` 加 `git clean -fd`：
+- **镜像**：按第 2 章「数据」中的来源下载，放到对应位置，然后运行一次不带 `--skip-data` 的 `setup.py`。它会跳过已有的数据，完成后续处理（比如生成 privacymeter 的 pkl）。之后：
+  - pycil 和 usb 需要**手动提交数据**。预先放好数据会跳过 setup 里的提交步骤，而 executor 每步都会运行 `git reset --hard` 加 `git clean -fd`：
     ```bash
     for r in workspace/Continual_Learning_pycil/PyCIL workspace/Data_Efficiency_usb/Semi-supervised-learning; do
       git -C $r add -f data && git -C $r commit -m "add cifar-100 dataset for agent benchmark"
     done
     ```
-    `data/` 在这两个仓库的 `.gitignore` 里，必须用 `add -f`（和 `setup.py` 的 `git_commit_data` 一致）。早先这里写的是 `add -A data`，什么都不会加进去，而且下面的检查也发现不了这个问题。可以用 `git -C $r ls-files data | wc -l` 确认数据确实进了仓库。
-  - 最后确认 8 个任务的代码库都是干净的（下面的命令不应有任何输出），否则数据可能在第一步就被清掉：
-    ```bash
-    for c in ml_tasks/*/config.json; do
-      r=$(python3 -c "import json;print(json.load(open('$c'))['repo_dir'])")
-      [ -d "$r" ] && git -C "$r" status --porcelain
-    done
-    ```
+    `data/` 在这两个仓库的 `.gitignore` 里，必须用 `add -f`（和 `setup.py` 的 `git_commit_data` 一致）。可以用 `git -C $r ls-files data | wc -l` 确认数据确实进了仓库。
+
+最后确认 8 个任务的代码库都是干净的。下面的命令不应有任何输出，否则数据可能在第一步就被清掉。6.8 启动前和 6.9 打分前也要再检查一次：
+
+```bash
+for c in ml_tasks/*/config.json; do
+  r=$(python3 -c "import json;print(json.load(open('$c'))['repo_dir'])")
+  [ -d "$r" ] && git -C "$r" status --porcelain
+done
+```
 
 officehome 第一次运行时会把 torchvision 的预训练权重下载到 `~/.cache`。沙盒可以写这个目录，网络也是共享的，所以不需要额外操作。
 
 ### 6.5 Baseline
 
-- **硬件和第 1 节相同**（Blackwell + 本文的环境）：直接用分支里提交的新 baseline。
-- **硬件不同**：建议先重测，用结果覆盖 `ml_tasks/<TASK>/baseline_results/{val,test}_info.json`。agent 提示词里的 baseline 和最终比较都读这两个文件。
+- **硬件和第 1 章相同**（Blackwell 加本文的环境）：直接用分支里提交的新 baseline。
+- **硬件不同**：建议先重测，用结果覆盖 `ml_tasks/<TASK>/baseline_results/{val,test}_info.json`。agent 提示词里的 baseline 和 6.9 的打分都读这两个文件。
 
   ```bash
   scripts/reproduction/rebaseline_task.sh <TASK> <GPU编号，CPU 填 "">
@@ -376,43 +327,117 @@ sandbox/run_in_bwrap.sh --shell -c 'for e in opacus pycil usb domainbed privacy_
 sandbox/run_in_bwrap.sh --shell -c '~/fml_envs/opacus/bin/python -c "import torch; print(torch.cuda.device_count())"'
 ```
 
-每个环境都应该打印出 Python 版本，GPU 数量也应该正确。Bedrock 能否调用，可以参照 4.3 里的验证方式：在沙盒里用 `agents.llm.create_client(..., "AnthropicBedrock")` 发一条短消息。
+每个环境都应该打印出 Python 版本，GPU 数量也应该正确。要确认 Bedrock 能否调用，可以在沙盒里用 `agents.llm.create_client(..., "AnthropicBedrock")` 发一条短消息。
 
-### 6.7 运行冒烟测试
+### 6.7 冒烟测试（可选，建议做）
+
+每个任务跑 3 步，先确认整条链路能跑通，再投入两天的正式测试：
 
 ```bash
 GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/smoke_lite7_<机器名>
 ```
 
-- 脚本在前台运行，会启动资源监控，同时运行 7 个任务，每个跑 3 步。分配和 5.2 相同：GPU_A 跑 pycil、domainbed、privacymeter，GPU_B 跑 usb、officehome、openood，ART 只用 CPU。
-- 全部结束后，脚本会打印每个任务的命令数、失败数、最佳 val 和 test，以及显存和内存峰值。
-- 可调的环境变量：`STEPS`（默认 3）、`OUTPUT_DIR`（默认 `benchmark_results_smoke`）、`SMOKE_TASKS`（用空格分隔的 `任务配置|CUDA_VISIBLE_DEVICES` 列表，替换默认的 7 任务 / 2 卡分配，可以加上 `privacy_opacus`）、`EXTRA_OVERRIDES`（传给 run_agent_benchmark.py 的额外覆盖，例如 `agent.ai_scientist_v2.execute_timeout=7200`）。第 8 节的用法：
-  ```bash
-  SMOKE_TASKS="generalization_officehome|0 robustness_openood|1 generalization|1 privacy_privacymeter|2 privacy_opacus|2 continual_learning_pycil|3 data_efficiency_usb|3 robustness_and_reliability_art|" \
-  EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
-    scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/l4/smoke_lite8
-  ```
-- 跑这么久，建议用 `setsid nohup ... &` 放到后台，或者在 tmux 里运行。
+- 脚本在前台运行，会启动资源监控，同时运行 7 个任务（不含 opacus），每个跑 3 步，输出到 `benchmark_results_smoke/`。结束后打印每个任务的命令数、失败数、最佳 val 和 test，以及显存和内存峰值。
+- 可调的环境变量：
+  - `STEPS`：步数，默认 3；
+  - `OUTPUT_DIR`：输出目录，默认 `benchmark_results_smoke`；
+  - `SMOKE_TASKS`：用空格分隔的 `任务配置|CUDA_VISIBLE_DEVICES` 列表，替换默认的分配，可以加上 `privacy_opacus`；
+  - `EXTRA_OVERRIDES`：传给 run_agent_benchmark.py 的额外覆盖，例如 `agent.ai_scientist_v2.execute_timeout=7200`。
 
-### 6.8 怎么判断是否成功
+  第 8 章就是这样用的。
+- **怎么判断是否成功**：
+  - 每个任务的日志里都有 `Best Val Metric` 和 `Test Metric`，工作区副本已清理（`Cleaned up workspace copy`）；
+  - 日志里没有 `No such file or directory: 'conda'`、`Command timed out after`，也没有 Bedrock 鉴权错误；
+  - privacymeter 某一步因为 TPR 约束被判无效是正常的。
 
-- 每个任务都跑完 3 步（日志里有 `Best Val Metric` 和 `Test Metric`），并且清理了工作区副本（`Cleaned up workspace copy`）。
-- 日志里没有 `No such file or directory: 'conda'`，没有 `Timeout after`，也没有 Bedrock 鉴权错误。
-- 指标和 5.2 不需要完全一致，因为 agent 的输出是随机的。但量级应该相近：pycil、officehome 接近或略高于 baseline，domainbed 和 ART 很可能大幅提升，usb 可能不升。
-- privacymeter 某一步因为 TPR 约束被判无效是正常的。
+### 6.8 正式测试
 
-### 6.9 本次踩过的坑
+8 个任务各跑 100 步，排成 5 个队列位置：同一位置上的任务依次运行，各位置并行。
+
+```bash
+L=docs/reproduction_logs/full_lite8_ai_scientist_v2
+mkdir -p $L
+setsid nohup python3 scripts/reproduction/resource_monitor.py $L/resources.csv 10 > $L/monitor.out 2>&1 < /dev/null &
+AGENT=ai_scientist_v2 \
+QUEUE_SLOTS="0|generalization_officehome;0|privacy_privacymeter continual_learning_pycil;1|data_efficiency_usb;1|robustness_openood generalization privacy_opacus;|robustness_and_reliability_art" \
+setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /dev/null &
+```
+
+- `run_lite_queue.sh` 里固定了以下设置，和第 5 章一致：
+  - 模型 `us.anthropic.claude-opus-5-5`，provider `AnthropicBedrock`；
+  - `--workspace-label opus55`；
+  - `agent.<AGENT>.max_steps=100` 和 `execute_timeout=4800`；
+  - 每个任务都通过沙盒运行，结果写到 `benchmark_results/<AGENT>/<Task>/`。
+- **排队方式**：每张卡 2 个位置，一个任务等 LLM 回复时，另一个正好用 GPU。最长的位置是 GPU0 的 privacymeter → pycil，约 50 小时。ART 只用 CPU，因为 TF 2.10 用不了 Blackwell。
+- 5.1 的 opacus 当时是单独运行的，用的是默认的 2400 秒超时，没有发生超时，所以这里统一用 4800 秒结果等价。复现 5.3 时，把 `AGENT` 换成 `autoresearch`，日志目录也相应改名。
+- `run_lite_queue.sh` 没有输出目录参数。如果 `benchmark_results/<AGENT>/<Task>/` 下已经有旧的运行，先移走，原因见 6.9。
+- 运行时间长，建议用上面的 `setsid nohup` 放到后台，或者在 tmux 里运行。
+- **跑完之后**：
+  - `queue.log` 里每个任务都有 `end ... rc=0`，最后一行是 `all slots done`；
+  - 每个任务的日志里都有 `Test Metric`，`grep -c 'Command timed out after' $L/*.log` 都是 0；
+  - 统计按 2400 秒标准协议会超时的步数：`grep -oP 'Command finished in \K[0-9.]+' $L/<任务配置>.log | awk '$1>2400' | wc -l`；
+  - 资源监控**不会自动退出**，要用它的 PID 手动 `kill`。
+
+### 6.9 计算 Normalized Improvement
+
+**定义**（论文 arXiv:2605.17373 第 3.3 节和附录 E.1）：
+
+`NI = max(0, (p_agent − p_baseline) / |p_best − p_worst|)`
+
+- `p_agent` 和 `p_baseline` 都是 **test** 指标。`p_baseline` 读 `ml_tasks/<TASK>/baseline_results/test_info.json`。
+- 越低越好的指标把分子取反。改进为负时截断为 0。
+- `p_best` 和 `p_worst` 取指标的理论最好值和最差值，在 `compute_agent_metrics.py` 的 `RANGE_META` 里：
+  - Lite 的 7 个准确率或 AUROC 类任务取 1 和 0；
+  - privacymeter 的 AUC_gap 取 0 和 0.5。
+- test 崩溃、违反约束或缺少 test 结果时，按 baseline 计分，NI 为 0。
+- MEAN 是 8 个任务的算术平均。
+
+**命令**（在宿主机上用 fmlbench 环境运行，不需要沙盒）：
+
+```bash
+~/fml_envs/fmlbench/bin/python compute_agent_metrics.py benchmark_results/ai_scientist_v2 --lite \
+  --output-dir metric_reports/ai_scientist_v2_opus55_lite
+```
+
+- **前提**：
+  - 8 个模板工作区都是干净的（用 6.4 的检查命令）。过程指标里的探索类指标要读 baseline 代码。
+  - 每个任务目录下只能有一个主运行。脚本取按名字排序后第一个含 `summary.json` 的运行目录，也就是最早的那次。
+- **打分脚本还需要的东西**：
+  - `--lite` 只给 Lite 的 8 个任务打分，MEAN 也只对这 8 个求平均。不加的话，脚本会要求 18 个任务都存在。
+  - fmlbench 环境里的 pyarrow 必须低于 26（`setup.py` 已固定），否则 scikit-learn 导入失败。旧环境可以用 `uv pip install --python ~/fml_envs/fmlbench/bin/python 'pyarrow<26'` 修复。
+  - 第一次运行会从 Hugging Face 下载 `microsoft/graphcodebert-base`，只用于过程指标里的探索类指标，不影响 NI。嵌入向量缓存在 `<output-dir>/embeddings_cache/`。
+  - `--output-dir` 不能放在结果目录里面，脚本会拒绝。
+- **输出**：`--output-dir` 下有三张 CSV。
+  - `table_raw_performance.csv`：每个任务的 baseline test 和 agent test。`note` 列都应该是 `ok`，否则表示 test 缺失、崩溃或违反约束。
+  - `table_normalized_improvement.csv`：**每个任务的 NI 和 MEAN**，即 5.1 表中的 NI 列。
+  - `table_process_metrics.csv`：12 个过程指标。
+- **原始 baseline 对照列**：5.1 表的最后一列是手工算的，公式不变，只是把 `p_baseline` 换成 `ml_tasks/<TASK>/baseline_results/original/test_info.json` 里的值。
+- **怎么判断复现是否成功**：agent 的输出是随机的，单次运行的数值不会和 5.1 完全一致，比较的是量级：
+  - domainbed、privacymeter、ART 的 NI 应该大幅提升；
+  - 其余任务一般在 0.02～0.16。
+
+### 6.10 快照检查
+
+按 5.2 的三步检查每个任务被测的代码：
+
+1. 在 `summary.json` 的 `val_steps` 里找到最早达到最佳 val 的那一步，对应快照是主运行目录下的 `step_snapshots/step_NNNN_code.json`。快照里的路径是工作区副本的路径，对应到模板工作区，用 `git show HEAD:<文件>` 取出 baseline 版本来比较。
+2. 对全部快照里 agent 新增的行做静态扫描。
+3. 逐个阅读被测步的 diff，并对照评测脚本确认数据流向。
+
+### 6.11 常见问题
 
 | 现象 | 原因与处理 |
 |---|---|
-| privacymeter 报 `No such file or directory: 'conda'` | 环境的基础解释器在沙盒里看不到。需要沙盒脚本的解释器挂载（6.2），或者建环境时设 `UV_PYTHON_PREFERENCE=only-managed`（6.3） |
-| ART 被分到了 GPU | 需要新版沙盒脚本，并且传 `CUDA_VISIBLE_DEVICES=""` |
+| privacymeter 报 `No such file or directory: 'conda'` | 环境的基础解释器在沙盒里看不到。当前的沙盒脚本会挂载解释器（4.3）；也可以在建环境时设 `UV_PYTHON_PREFERENCE=only-managed`（6.3） |
+| ART 被分到了 GPU | 要传 `CUDA_VISIBLE_DEVICES=""`。队列脚本里 ART 所在位置的 GPU 字段留空，就是这个作用 |
 | officehome 不到 10 秒就失败（timm 报错） | `huggingface_hub` 装成了 2.x。`setup.py` 已锁定 `<1.0` |
 | 沙盒里 DNS 解析失败 | `/etc/resolv.conf` 是指向 `/run/systemd/resolve/` 的软链接，沙盒脚本已挂载这个目录 |
 | 数据在第一步被删 | 数据没提交到任务代码库，见 6.4（注意要用 `add -f`） |
-| `setup.py` 报 `missing required commands: conda, pip` | 旧版启动检查无条件要求 conda/pip。已改为只有要建 conda 环境时才检查 |
-| 全新机器上建 privacy_meter 环境失败（找不到 `requirements.txt`） | 环境要读克隆下来的仓库里的 requirements.txt，但建环境在克隆之前。已改为建这个环境前先克隆 |
-| GPU 较慢的机器上 officehome / openood / privacymeter 超时 | 默认 2400 秒是按 Blackwell 的速度定的；L4 上要用 `execute_timeout=7200`（第 8 节） |
+| `setup.py` 报 `missing required commands: conda, pip` | 旧版启动检查无条件要求 conda/pip，已改为只有要建 conda 环境时才检查 |
+| 全新机器上建 privacy_meter 环境失败（找不到 `requirements.txt`） | 这个环境要读克隆下来的仓库里的 requirements.txt，但旧版先建环境、后克隆。已改为建这个环境前先克隆 |
+| GPU 较慢的机器上 officehome / openood / privacymeter 超时 | 默认 2400 秒是按 Blackwell 的速度定的。L4 上要用 `execute_timeout=7200`（第 8 章） |
+| 打分时 `FileNotFoundError`（找不到某个任务） | 没加 `--lite`，脚本默认要求 18 个任务都存在 |
+| 打分时 scikit-learn 导入失败 | pyarrow 26 要求 NumPy ≥ 2，而 numpy 固定在 1.26.4。装 `pyarrow<26`（6.9） |
 | 用 `pkill -f <关键字>` 停监控时，执行命令的 shell 也被杀掉 | 关键字匹配到了这条命令自己的命令行。改用具体的 PID 去 `kill` |
 
 ---
@@ -425,23 +450,26 @@ GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/sm
 - [ ] ART：是否构建能用 Blackwell GPU 的 TF 环境（会改动锁定的版本）
 - [ ] 迁移并测试其余 10 个非 Lite 任务的环境
 - [x] 提交 harness 代码与本文档初版（分支 `repro/bedrock-uv-sandbox`：`83030f4`、`7ea0e4f`）
-- [ ] 提交之后的改动：`sandbox/run_in_bwrap.sh`、`benchmark/executor.py`、`scripts/reproduction/{resource_monitor.py,run_smoke_lite.sh,run_lite_queue.sh}`、`ml_tasks/*/baseline_results/`、本文档。在其他机器上重跑之前必须完成（见 6.2）
-- [ ] 正式测试（5.3）结束后：补充结果，统计超过 2400 秒的步数，检查代码快照里有没有读取数据
-- [ ] domainbed（ColoredMNIST）和 ART 利用题目先验大幅提升：要不要通过改任务说明来限制（这属于修改 benchmark，需要决定）
+- [x] 提交沙盒、耗时记录、复现脚本、新 baseline 和第 8 章的 `setup.py` 改动（`6ff6b53`、`74ff570`）
+- [x] ai_scientist_v2 的 Lite 正式测试与打分（5.1）
+- [x] 检查正式测试中各任务最佳步的代码快照（5.2）：没有读取数据，也没有改动评测代码；domainbed 利用了题目先验，privacymeter 利用了评测只做非自适应攻击这一点
+- [ ] privacymeter：是否在评测中加入自适应攻击（例如对查询做扰动），防止基于输入哈希的路由式防御拿到接近 0 的 AUC_gap（这属于修改 benchmark，需要决定）
+- [x] 提交 `compute_agent_metrics.py` 的 `--lite`/`--tasks`、`setup.py` 的 `pyarrow<26`、`run_lite_queue.sh` 的 `AGENT`/`QUEUE_SLOTS`、README 的说明、本文档和 5.1 的打分表
+- [ ] domainbed（ColoredMNIST）利用题目先验大幅提升（见 5.2）：要不要通过改任务说明来限制（这属于修改 benchmark，需要决定）
 - [ ] `setup.py` 建 uv 环境时是否固定只用 uv 管理的 Python（`--python-preference only-managed`），避免用到宿主机的解释器
+- [ ] autoresearch 正式测试（5.3）结束后：统计超时步数，用 `--lite` 打分，检查最佳步代码快照，和 ai_scientist_v2 对比
 - [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）
-- [ ] 第 8 节的 `setup.py`、`compare_baseline.py`、`run_smoke_lite.sh` 改动和本文档的修订尚未提交
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
 
 ---
 
 ## 8. 第二台机器复现：4 × L4（2026-11-03 08:20 ～ 12:50）
 
-按第 6 节的流程在另一台机器上从头走了一遍：建环境 → 重测 8 个 baseline → 8 个 Lite 任务的冒烟测试。第一台机器的正式测试（5.3）当时正在 EFS 的仓库目录里运行，为了不和它冲突（`workspace/`、`rebaseline_results/`、`benchmark_results_smoke/` 和 baseline 文件），整个仓库被复制到本机本地盘 `~/FML-bench`（不含 `workspace/` 和结果目录），所有操作都在这个副本里完成。环境在 `~/fml_envs`。结果和日志都复制到了 EFS 仓库的 `docs/reproduction_logs/l4/` 下（见下文各节）。
+按第 6 章的流程在另一台机器上从头走了一遍：建环境 → 重测 8 个 baseline → 8 个 Lite 任务的冒烟测试。第一台机器的正式测试（5.1）当时正在 EFS 的仓库目录里运行，为了不和它冲突（`workspace/`、`rebaseline_results/`、`benchmark_results_smoke/` 和 baseline 文件），整个仓库被复制到本机本地盘 `~/FML-bench`（不含 `workspace/` 和结果目录），所有操作都在这个副本里完成。环境在 `~/fml_envs`。结果和日志都复制到了 EFS 仓库的 `docs/reproduction_logs/l4/` 下（见下文各节）。
 
 ### 8.1 机器环境
 
-| 项目 | 第一台（第 1 节） | 本机 |
+| 项目 | 第一台（第 1 章） | 本机 |
 |---|---|---|
 | GPU | 2 × RTX PRO 6000 Blackwell（96 GB，sm_120） | **4 × NVIDIA L4（24 GB，sm_89）** |
 | 驱动 / CUDA | 580.126.16 / 13.0 | 595.71.05 / 13.2 |
@@ -453,7 +481,7 @@ GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/sm
 
 ### 8.2 环境（第 1 步）
 
-结论：**uv 方案可以直接使用**，但 `setup.py` 有 3 处要改（已改，未提交）：
+结论：**uv 方案可以直接使用**，但 `setup.py` 有 3 处要改（已改并提交）：
 
 1. **启动检查无条件要求 `conda` 和 `pip`。** 本机两者都没有，`setup.py` 直接退出。已改为只有要建的环境里有 conda 环境时才检查 conda/pip；uv 是必需的。
 2. **privacy_meter 环境的构建顺序。** 这个环境要读 `workspace/Privacy_privacymeter/ml_privacy_meter/requirements.txt`，但 `setup.py` 先建环境（第 1 阶段）、后克隆仓库（第 2 阶段）。在第一台机器上没出问题，是因为当时仓库已经克隆好了；在全新机器上会失败。已改为建这个环境前先克隆（`clone_privacymeter()`，可重复调用）。
@@ -469,7 +497,7 @@ GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/sm
 
 所有 torch 环境都能在 L4 上做 GPU 计算（torch 2.7.1+cu128 带 sm_86/sm_90 的 kernel，sm_89 可以直接用）。ART 的 TF 2.10.1 看不到 GPU，和第一台一样只用 CPU。沙盒检查（6.6）全部通过：8 个环境都能启动，GPU 数量正确，`CUDA_VISIBLE_DEVICES=""` 下没有 GPU，ml_tasks 只读、workspace 可写，`~/.ssh`、EFS、conda 都不可见，沙盒内能调用 Bedrock。
 
-数据：用 `setup.py --skip-data` 克隆代码库后，从 EFS 模板复制原始数据（md5 与第 2 节一致），再运行一次不带 `--skip-data` 的 `setup.py`。opacus、openood、privacymeter 由 setup 自己解压、生成 pkl 并提交；pycil 和 usb 手动提交。**文档里原来的手动提交命令（`git add -A data`）是错的**：`data/` 被这两个仓库的 `.gitignore` 忽略，必须用 `add -f`（6.4 已改）。最终 8 个代码库都是干净的。与 EFS 上的模板比较 git 文件树：7 个完全相同；privacymeter 的两个 pkl 字节不同，原因是 pickle 里存了数据集对象的绝对路径（`root`），数据和标签逐项相同。
+数据：用 `setup.py --skip-data` 克隆代码库后，从 EFS 模板复制原始数据（md5 与第 2 章一致），再运行一次不带 `--skip-data` 的 `setup.py`。opacus、openood、privacymeter 由 setup 自己解压、生成 pkl 并提交；pycil 和 usb 手动提交。**文档里原来的手动提交命令（`git add -A data`）是错的**：`data/` 被这两个仓库的 `.gitignore` 忽略，必须用 `add -f`（6.4 已改）。最终 8 个代码库都是干净的。与 EFS 上的模板比较 git 文件树：7 个完全相同；privacymeter 的两个 pkl 字节不同，原因是 pickle 里存了数据集对象的绝对路径（`root`），数据和标签逐项相同。
 
 ### 8.3 Baseline 重测（第 2 步）
 
@@ -491,8 +519,8 @@ GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/sm
 **分析**
 
 - 8 个任务都跑通了，与当前采用的 baseline 相比，全部一致或接近。
-- **domainbed 补充了第 3 节的结论。** 每台机器上都只有一个种子，结果是确定性的（第一台跑两次完全相同，都是 0.239320）。本机用同样的 torch 2.7.1，得到 0.2626，落在原始值（torch 1.12.1，0.279）和 Blackwell（0.239）之间。所以第 3 节"最可能是 torch 版本"的判断不完整：**同一个 torch 版本只换 GPU，结果也会变化约 0.02**。这个任务对硬件和 kernel 层面的数值差异本身就很敏感。
-- **ART 进一步支持第 3 节的判断。** 本机 CPU 的各项分指标和第一台 CPU 几乎一样（clean_acc 0.9555 对 0.9558，poison_acc 0.816 对 0.813），defense_score 的差距约 0.01，可能来自 AMD 和 Intel 的浮点差异。两台都离原始的 0.472 很远，"原 baseline 用的是 GPU 或另一版代码"的可能性更大了。
+- **domainbed 补充了第 3 章的结论。** 每台机器上都只有一个种子，结果是确定性的（第一台跑两次完全相同，都是 0.239320）。本机用同样的 torch 2.7.1，得到 0.2626，落在原始值（torch 1.12.1，0.279）和 Blackwell（0.239）之间。所以第 3 章"最可能是 torch 版本"的判断不完整：**同一个 torch 版本只换 GPU，结果也会变化约 0.02**。这个任务对硬件和 kernel 层面的数值差异本身就很敏感。
+- **ART 进一步支持第 3 章的判断。** 本机 CPU 的各项分指标和第一台 CPU 几乎一样（clean_acc 0.9555 对 0.9558，poison_acc 0.816 对 0.813），defense_score 的差距约 0.01，可能来自 AMD 和 Intel 的浮点差异。两台都离原始的 0.472 很远，"原 baseline 用的是 GPU 或另一版代码"的可能性更大了。
 - **速度**：上表的 L4 耗时是在多个任务共用 GPU 的情况下测的，和第一台机器的并发情况也不一样，所以不能直接比较。为此又做了一次对照实验：每个任务单独占一张 L4 重跑 val（`rebaseline_results/<TASK>__solo/`），同时用 `nvidia-smi dmon` 每 5 秒采样一次（`docs/reproduction_logs/l4/solo/dmon*.txt`）。除 privacymeter 外，重跑的 val 结果与第一次 L4 测量逐字节相同。privacymeter 开了 `cudnn.benchmark`，卷积算法的选择不固定，结果是 0.3287 对 0.3282。
 
   | 任务 | 第一台（并发情况） | L4 第一次（并发情况） | **L4 单卡** | **单卡 / 第一台** | L4 单卡时：SM 利用率 / 显存带宽 / 功耗 / SM 时钟 | 瓶颈 |
@@ -510,7 +538,7 @@ GPU_A=0 GPU_B=1 scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/sm
   1. **任务本身的瓶颈不同。** 受 GPU 算力限制的任务（officehome、privacymeter、openood）慢 3～4.6 倍。L4 的 fp32/TF32 算力和显存带宽本来就比 RTX PRO 6000 低好几倍，而且功耗上限只有 72 W。这几个任务 95% 以上的时间都碰到功耗上限（`SW Power Cap` 处于触发状态），SM 时钟从 2040 MHz 降到 1180～1330 MHz。受 CPU、数据加载或 Python 开销限制的任务（pycil、usb、domainbed），L4 的 GPU 只用到 40～50%，换更快的 GPU 也省不了多少时间，所以只慢 1.3～1.4 倍，甚至更快。opacus 介于两者之间。
   2. **并发的影响。** 第一次 L4 测量时，privacymeter（6.5 倍 → 单卡 4.1 倍）和 pycil（2.4 倍 → 单卡 1.4 倍）都和其他任务共用 GPU，被拖慢了很多。domainbed 对 CPU 竞争很敏感：两台机器第一次测量时都和占满全部 CPU 的 ART（TF CPU）同时运行，单独跑时只要 1m49s，比第一台的 3m32s 还快（本机 96 核，第一台 48 核）。
   - 对冒烟测试和正式测试的影响：超时风险集中在 officehome、privacymeter、openood 这三个受 GPU 算力限制的任务上，同一张卡上再加任务会更慢。在 L4 上，这三个任务最好每个单独占一张卡。
-- **采用**：`ml_tasks/*/baseline_results/` **没有改动**，冒烟测试的提示词里用的仍是第一台测出的 baseline，以便和 5.2 比较。本机结果与它的差距都在可接受范围内。如果要以 L4 作为正式评测平台，需要另外决定是否换成本机的值。
+- **采用**：`ml_tasks/*/baseline_results/` **没有改动**，冒烟测试的提示词里用的仍是第一台测出的 baseline，以便和 Blackwell 上的冒烟测试比较。本机结果与它的差距都在可接受范围内。如果要以 L4 作为正式评测平台，需要另外决定是否换成本机的值。
 
 ### 8.4 冒烟测试：ai_scientist_v2 × 8 个 Lite 任务 × Opus 5.5（09:25 ～ 12:49）
 
@@ -520,15 +548,15 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
   setsid nohup scripts/reproduction/run_smoke_lite.sh docs/reproduction_logs/l4/smoke_lite8 > docs/reproduction_logs/l4/smoke_lite8/smoke.out 2>&1 &
 ```
 
-- 在 5.2 的 7 个任务之外加上了 opacus，每个任务 3 步，全部在沙盒中运行，输出到 `~/FML-bench/benchmark_results_smoke/`（副本在 `docs/reproduction_logs/l4/benchmark_results_smoke/`），`--workspace-label smoke`。
+- 在 Blackwell 冒烟测试的 7 个任务之外加上了 opacus，每个任务 3 步，全部在沙盒中运行，输出到 `~/FML-bench/benchmark_results_smoke/`（副本在 `docs/reproduction_logs/l4/benchmark_results_smoke/`），`--workspace-label smoke`。
 - **超时改为 7200 秒**（只在命令行覆盖，最终 test 用的是同一个值）。原因：officehome 的 baseline 在 L4 上单独跑一步就要 50 分钟，按默认的 2400 秒，第一步就必然超时。7200 秒大致相当于"L4 比 Blackwell 慢 3 倍，再留一些余量"。
 - 分配：officehome 单独占 GPU0（最重）；GPU1 openood + domainbed；GPU2 privacymeter + opacus；GPU3 pycil + usb；ART 只用 CPU。依据是 8.3 里的耗时。
 
-**结果**：8 个任务全部完成 3 步和最终 test，共 40 条命令，全部 returncode 0。没有 `conda` 报错，没有超时，没有 Bedrock 鉴权、限流或拒答，工作区副本都已清理（6.8 的判断标准全部满足）。
+**结果**：8 个任务全部完成 3 步和最终 test，共 40 条命令，全部 returncode 0。没有 `conda` 报错，没有超时，没有 Bedrock 鉴权、限流或拒答，工作区副本都已清理（6.7 的判断标准全部满足）。
 
-| 任务 | baseline（val / test） | 5.2 冒烟（val / test） | **L4 冒烟（val / test）** | 每条命令耗时（秒，3 步 + 最终重训练） | 超过 2400 秒 | 显存峰值 | 内存峰值（PSS） | token |
+| 任务 | baseline（val / test） | Blackwell 冒烟（val / test） | **L4 冒烟（val / test）** | 每条命令耗时（秒，3 步 + 最终重训练） | 超过 2400 秒 | 显存峰值 | 内存峰值（PSS） | token |
 |---|---|---|---|---|---|---|---|---|
-| opacus | 0.588 / 0.587 | （5.1 冒烟 test 0.631） | **0.629 / 0.618** | 427 / 638 / 636 / 473 | 0 | 11.9 GB | 2.2 GB | 2.4 万 |
+| opacus | 0.588 / 0.587 | （Blackwell 冒烟 test 0.631） | **0.629 / 0.618** | 427 / 638 / 636 / 473 | 0 | 11.9 GB | 2.2 GB | 2.4 万 |
 | pycil | 0.593 / 0.594 | 0.613 / 0.623 | **0.610 / 0.611** | 1238 / 1179 / 1140 / 1190 | 0 | 0.7 GB | 1.9 GB | 3.4 万 |
 | usb | 0.083 / 0.086 | 0.070 / 0.079 | **0.109 / 0.107** | 1318 / 1327 / 1784 / 1355 | 0 | 1.4 GB | 1.4 GB | 3.6 万 |
 | domainbed | 0.239 / 0.250 | 0.693 / 0.705 | **0.728 / 0.740** | 799 / 824 / 624 / 727 | 0 | 0.7 GB | 2.8 GB | 15.5 万 |
@@ -541,13 +569,13 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 
 - **整体**：
   - 总耗时 3 小时 24 分钟，由 officehome 决定（4 次训练，每次约 50 分钟）。其余任务都在 2 小时内完成。
-  - token 共约 54 万，和 5.2 的 7 个任务（约 52 万）相当，按官方价格估算约 $5～6。
+  - token 共约 54 万，和 Blackwell 上 7 个任务的冒烟测试（约 52 万）相当，按官方价格估算约 $5～6。
   - 单卡显存峰值：GPU0 9.9 GB，GPU1 2.1 GB，GPU2 13.3 GB，GPU3 2.1 GB，都没有超过 L4 的 24 GB。
 - **按标准协议（2400 秒）会有 6 条命令超时**：officehome 全部 4 条（包括最终重训练），privacymeter 第 1 步（和 opacus 共用 GPU 时），openood 第 1 步。officehome 的每一步都和 baseline 一样约 50 分钟，所以不是 agent 让代码变慢了，纯粹是 L4 算力不够。
-- 指标量级和 5.2 一致：pycil、officehome、openood 接近或略高于 baseline；domainbed、ART、privacymeter 大幅提升。usb 这次从 0.083 提升到 0.109（5.2 时没有超过 baseline）。opacus 和 5.1 的冒烟测试相近。
+- 指标量级和 Blackwell 冒烟一致：pycil、officehome、openood 接近或略高于 baseline；domainbed、ART、privacymeter 大幅提升。usb 这次从 0.083 提升到 0.109（Blackwell 冒烟时没有超过 baseline）。opacus 和 Blackwell 上 opacus 的冒烟测试相近。
 - **privacymeter**：最终 test 没有违反 TPR 约束（`constraint_violated: False`），test 准确率 0.755。
-- **domainbed（需要注意，和 5.2 相同）**：最优的第 2 步仍然是对红绿通道做置换对称（训练和预测时都对两种通道顺序的 logits 取平均），另外加了权重 EMA 和小损失截断（针对 25% 的标签噪声）。还是在利用 ColoredMNIST 的构造先验。
-- **ART（和 5.2 不同）**：最优的第 2 步只改了 `dp_instahide_trainer.py`（`model.py` 和 `split_config.json` 只改了空白）。做法是：先用 2 个 epoch 预训练，再在倒数第二层的特征上按类别做谱签名（spectral signatures）和 2 簇激活聚类（activation clustering），并按标签一致性过滤可疑样本，然后把权重重置为初始值，在过滤后的数据上做 DP-InstaHide 训练。**没有清空图像外框，也没有改写 `predict`**，用的是已发表的通用后门防御方法，不依赖触发器的位置。只有 3 步，样本太少，不能据此判断 agent 的倾向。
+- **domainbed（需要注意，和 Blackwell 冒烟相同）**：最优的第 2 步仍然是对红绿通道做置换对称（训练和预测时都对两种通道顺序的 logits 取平均），另外加了权重 EMA 和小损失截断（针对 25% 的标签噪声）。还是在利用 ColoredMNIST 的构造先验。
+- **ART（和 Blackwell 冒烟不同）**：最优的第 2 步只改了 `dp_instahide_trainer.py`（`model.py` 和 `split_config.json` 只改了空白）。做法是：先用 2 个 epoch 预训练，再在倒数第二层的特征上按类别做谱签名（spectral signatures）和 2 簇激活聚类（activation clustering），并按标签一致性过滤可疑样本，然后把权重重置为初始值，在过滤后的数据上做 DP-InstaHide 训练。**没有清空图像外框，也没有改写 `predict`**，用的是已发表的通用后门防御方法，不依赖触发器的位置。只有 3 步，样本太少，不能据此判断 agent 的倾向。
 
 日志和资源数据：`docs/reproduction_logs/l4/smoke_lite8/`（`*.log` 被 `.gitignore` 忽略，`resources.csv` 和 `smoke.out` 可以提交）。
 
@@ -564,6 +592,9 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | `sandbox/run_in_bwrap.sh` | 沙盒入口 |
 | `scripts/reproduction/resource_monitor.py` | 按工作区副本统计各任务的显存和内存（PSS）；`--summary` 输出峰值 |
 | `scripts/reproduction/run_smoke_lite.sh` | Lite 任务的冒烟测试（6.7）。默认是 7 个任务 / 2 张卡，可用 `SMOKE_TASKS` / `EXTRA_OVERRIDES` 自定义 |
-| `scripts/reproduction/run_lite_queue.sh` | 7 个 Lite 任务的正式测试，按位置排队（5.3） |
+| `scripts/reproduction/run_lite_queue.sh` | Lite 任务的正式测试，按位置排队；`AGENT`、`QUEUE_SLOTS` 可换 agent 和排队方式（6.8） |
+| `compute_agent_metrics.py` | 打分，输出原始指标、NI 和过程指标三张表（6.9） |
+| `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
+| `metric_reports/ai_scientist_v2_opus55_lite/` | 5.1 的三张表（CSV）和嵌入缓存 |
 | `benchmark_results_smoke/` | 冒烟测试结果 |
-| `docs/reproduction_logs/` | agent 运行日志。`*.log` 被 `.gitignore` 忽略，只存在本机；`smoke_lite7/`、`full_lite7/` 下还有资源采样的 csv |
+| `docs/reproduction_logs/` | agent 运行日志：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`。`*.log` 被 `.gitignore` 忽略，已完成的运行日志用 `git add -f` 提交，进行中的 5.3 还没提交；各目录下还有资源采样的 csv |

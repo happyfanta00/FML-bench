@@ -16,6 +16,7 @@ Usage:
     conda activate fmlbench
     python compute_agent_metrics.py results/ai_scientist_v2
     python compute_agent_metrics.py results/ai_scientist_v2 --output-dir my_report
+    python compute_agent_metrics.py results/ai_scientist_v2 --lite   # FML-bench-Lite only
 
 The 4 Exploration metrics require GraphCodeBERT embeddings of each step's code
 snapshot; these are computed on demand (needs `torch` + `transformers`) and cached
@@ -67,6 +68,18 @@ TASKS = [
     "Unlearning_open_unlearning",
 ]
 
+# FML-bench-Lite: the 8-task subset listed in the README.
+LITE_TASKS = [
+    "Continual_Learning_pycil",
+    "Data_Efficiency_usb",
+    "Generalization_domainbed",
+    "Generalization_domainbed_officehome",
+    "Robustness_openood",
+    "Privacy_opacus",
+    "Privacy_privacymeter",
+    "Robustness_and_Reliability_art",
+]
+
 UNLEARNING_TASK = "Unlearning_open_unlearning"
 
 # canonical_metric(info_json, task) = info_json[dataset]["means"][metric_key]
@@ -116,6 +129,7 @@ RANGE_META = {
 
 assert set(TASK_META) == set(TASKS)
 assert set(RANGE_META) == set(TASKS)
+assert set(LITE_TASKS) <= set(TASKS)
 
 # Embedding constants (GraphCodeBERT full-code embeddings)
 GRAPHCODEBERT_MODEL = "microsoft/graphcodebert-base"
@@ -701,7 +715,13 @@ def main():
                         help="Where to write the CSVs + embedding cache. MUST be outside the "
                              "experiment result path (default: ./metric_reports/<agent_name> in "
                              "the current working directory).")
+    subset = parser.add_mutually_exclusive_group()
+    subset.add_argument("--lite", action="store_true",
+                        help="Score only the 8 FML-bench-Lite tasks (MEAN rows average over them).")
+    subset.add_argument("--tasks", nargs="+", metavar="TASK", choices=TASKS,
+                        help="Score only these tasks (MEAN rows average over them).")
     args = parser.parse_args()
+    tasks = LITE_TASKS if args.lite else (args.tasks or TASKS)
 
     agent_root = Path(args.agent_dir).resolve()
     if not agent_root.is_dir():
@@ -725,7 +745,7 @@ def main():
 
     # Baselines (static, from ml_tasks)
     baselines = {}
-    for task in TASKS:
+    for task in tasks:
         base_dir = REPO_ROOT / "ml_tasks" / task / "baseline_results"
         baselines[task] = {
             "val": canonical_metric(safe_load_json(base_dir / "val_info.json"), task),
@@ -749,7 +769,7 @@ def main():
     embed_ctx = (get_model, device, cache_dir)
 
     rows = []
-    for task in TASKS:
+    for task in tasks:
         print(f"  scoring {task} ...")
         rows.append(score_task(agent_root, task, baselines, embed_ctx))
     df = pd.DataFrame(rows).set_index("task")

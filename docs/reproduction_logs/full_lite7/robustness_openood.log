@@ -550,3 +550,67 @@ Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-
 Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
 Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
 Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 712.0 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD/results_tmp
+Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 830.6 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD/results_tmp
+Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 740.2 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD/results_tmp
+Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 676.4 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD/results_tmp
+Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 863.5 s (returncode 0)
+Stage 4 (ablation_refinement): 20 steps, best=0.9201255875537903
+HEAD is now at a32f08b add cifar-10/100 and svhn datasets for agent benchmark
+Removing model_checkpoint/
+Removing results_tmp/
+Removing train_eval_baseline.py
+Git repository reset to clean state
+Running val_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split val
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 814.3 s (returncode 0)
+Cleaning existing results_tmp/ directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD/results_tmp
+Running test_command: cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
+Running command: bash -c cp ../../../ml_tasks/Robustness_openood/train_eval_baseline.py ./ && python train_eval_baseline.py --split test
+Current working directory: /home/ec2-user/efs_data/workspace/FML-bench/workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f/OpenOOD
+Command finished in 8.0 s (returncode 0)
+HEAD is now at a32f08b add cifar-10/100 and svhn datasets for agent benchmark
+Removing model_checkpoint/
+Removing results_tmp/
+Removing train_eval_baseline.py
+Git repository reset to clean state
+Benchmark completed: Robustness_openood
+
+Summary saved to: benchmark_results/ai_scientist_v2/Robustness_openood/20261103_064807_796603e4/summary.json
+Configuration saved to: benchmark_results/ai_scientist_v2/Robustness_openood/20261103_064807_796603e4/config_used.yaml
+
+============================================================
+Results Summary
+============================================================
+Best Val Metric: 0.9203624296590533 (step 55, idea: ## Introduction
+You are an experienced AI researcher. You are provided with a previously developed implementation. Your task is to improve it based on the current experimental stage.
+
+## Memory
+**Summ)
+Test Metric: 0.9928169571428571
+Total Steps: 100
+Total Ideas: 8
+
+Token Usage: 1,902,690 total (prompt: 1,160,038, completion: 742,652)
+============================================================
+
+Done!
+Cleaning up copied workspace...
+Cleaned up workspace copy: workspace/Robustness_openood__opus55_20261103_064732_e35f5b7f

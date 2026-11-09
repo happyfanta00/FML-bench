@@ -269,6 +269,10 @@ conda activate fmlbench
 python compute_agent_metrics.py results/ai_scientist_v2
 ```
 
+For a [FML-bench-Lite](#fml-bench-lite) run, add `--lite` to score only the 8
+Lite tasks (the MEAN rows then average over those 8). `--tasks <TASK> ...`
+scores any other subset.
+
 It prints and writes three tables (as CSVs under `metric_reports/<agent_name>/`
 by default; override the location with `--output-dir`):
 

@@ -520,7 +520,9 @@ def setup_conda_env_fmlbench():
         "uv pip install aider-chat==0.85.1",
         "uv pip install 'anthropic[bedrock]==0.84.0' backoff==2.2.1 openai==1.91.0 google-generativeai==0.8.5 "
         "matplotlib==3.10.8 pypdf==6.9.0 pymupdf4llm==1.27.2.1 torch==2.10.0 numpy==1.26.4 "
-        "transformers==5.3.0 datasets==4.7.0 tiktoken==0.9.0 wandb==0.25.1 tqdm==4.67.1",
+        "transformers==5.3.0 datasets==4.7.0 tiktoken==0.9.0 wandb==0.25.1 tqdm==4.67.1 "
+        # pyarrow (pulled in by datasets) >=26 requires NumPy 2; numpy is pinned to 1.26.4 above.
+        "'pyarrow<26'",
         "uv pip install gpytorch==1.15.2 umap-learn==0.5.11 scikit-learn==1.8.0",
         "uv pip install jupyterlab",
     ])

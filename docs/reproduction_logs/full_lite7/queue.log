@@ -4,3 +4,12 @@
 2026-11-03 06:47:31 start privacy_privacymeter gpu=[0]
 2026-11-03 06:47:31 start robustness_openood gpu=[1]
 2026-11-03 16:38:38 end   robustness_and_reliability_art rc=0
+2026-11-04 05:36:12 end   robustness_openood rc=0
+2026-11-04 05:36:12 start generalization gpu=[1]
+2026-11-04 11:36:35 end   generalization_officehome rc=0
+2026-11-04 13:18:48 end   generalization rc=0
+2026-11-04 14:02:03 end   privacy_privacymeter rc=0
+2026-11-04 14:02:03 start continual_learning_pycil gpu=[0]
+2026-11-04 16:01:36 end   data_efficiency_usb rc=0
+2026-11-05 09:06:47 end   continual_learning_pycil rc=0
+2026-11-05 09:06:47 all slots done
