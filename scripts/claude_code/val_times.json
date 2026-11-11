@@ -1,0 +1,10 @@
+{
+ "Continual_Learning_pycil": 477.2,
+ "Data_Efficiency_usb": 528.8,
+ "Generalization_domainbed": 103.2,
+ "Generalization_domainbed_officehome": 656.9,
+ "Privacy_opacus": 82.0,
+ "Privacy_privacymeter": 366.2,
+ "Robustness_and_Reliability_art": 260.2,
+ "Robustness_openood": 411.2
+}

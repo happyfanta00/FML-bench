@@ -1,9 +1,9 @@
 # FML-bench 复现实验记录
 
-本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章），以及从零复现这些结果的完整流程（第 6 章）。
+本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章，含用 Claude Code 作为 agent 的对比），以及从零复现这些结果的完整流程（第 6 章）。
 
 - 分支：`repro/bedrock-uv-sandbox`，基于上游 `d336651`
-- 记录时间：2026-11-02 ～ 2026-11-09
+- 记录时间：2026-11-02 ～ 2026-11-11
 - baseline 有两版（第 3 章）：g7e.12xlarge 版是第 5 章 agent 测试用的；g7e.24xlarge 版是仓库当前采用的。第 8 章是 4 × L4 上的对照
 
 ---
@@ -13,7 +13,7 @@
 | 用途 | 机器 | GPU | 驱动 / CUDA | CPU / 内存 | 系统 | uv / bwrap |
 |---|---|---|---|---|---|---|
 | **Agent 测试（第 5 章）**、baseline 的 g7e.12xlarge 版 | AWS `g7e.12xlarge`（us-west-2） | 2 × NVIDIA RTX PRO 6000 Blackwell Server Edition（96 GB，sm_120） | 580.126.16 / 13.0 | Intel Xeon Platinum 8559C，48 核 / 499 GB | Amazon Linux 2023，kernel 6.1 | 0.11.14 / 0.10.0 |
-| **baseline 的 g7e.24xlarge 版（仓库采用）**、数据缓存（2.2） | AWS `g7e.24xlarge`（us-east-1） | 4 × 同型号 GPU | 595.112.07 / 13.0 | Intel Xeon Platinum 8559C，96 核 / 999 GB | Amazon Linux 2023，kernel 6.12 | 0.13.7 / 0.12.0 |
+| **baseline 的 g7e.24xlarge 版（仓库采用）**、数据缓存（2.2）、Claude Code 测试（5.4） | AWS `g7e.24xlarge`（us-east-1） | 4 × 同型号 GPU | 595.112.07 / 13.0 | Intel Xeon Platinum 8559C，96 核 / 999 GB | Amazon Linux 2023，kernel 6.12 | 0.13.7 / 0.12.0 |
 | 其他硬件对照（第 8 章） | 4 × L4 | 4 × NVIDIA L4（24 GB，sm_89） | 595.71.05 / 13.2 | AMD EPYC 7R13，96 核 / 363 GB | Amazon Linux 2023，kernel 6.12 | 0.12.10 / 0.10.0 |
 
 - 不使用 conda。LLM 是 Amazon Bedrock 的 `us.anthropic.claude-opus-5-5`，凭证来自实例角色。
@@ -276,6 +276,78 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
 - val 严格优于当前最好值才保留，否则退回当前最好的代码；崩溃时最多调试 3 次。
 - 最终 test 用的是最早达到最佳 val 的那一步的代码，即使它没有超过 baseline 也照样跑 test，这时 NI 被截断为 0。
 
+### 5.4 Claude Code × FML-bench-Lite × Opus 5.5
+
+**设置**（方案和实现见 `docs/claude_code_agent_design.md`、`scripts/claude_code/`）
+
+- agent：Claude Code 2.1.318，在交互模式下用 `/goal` 运行（`--dangerously-skip-permissions`，禁用 WebFetch/WebSearch）。模型是 Bedrock `us.anthropic.claude-opus-5-5`，`/goal` 的判定模型是 `us.anthropic.claude-haiku-5-5`。任务说明放在只读的 `CLAUDE.md` 里，研究问题部分原样使用 `prompt.json`。
+- 机器：g7e.24xlarge。每个任务一个 bwrap 沙盒，只能看到：
+  - 本任务的代码和 uv 环境；
+  - 掩码数据：隐藏 test 样本的图像置零，标签和文件布局不变。privacymeter 的 test 是同一次运行里的另一部分目标模型，无法掩码；
+  - 分配给它的一张 GPU。GPU 任务各 16 个逻辑 CPU，ART 用 48 个，只用 CPU。
+- 分两批运行：
+  - 第 1 批：pycil、usb、domainbed、ART，2026-11-05 ～ 11-06；
+  - 第 2 批：officehome、openood、privacymeter、opacus，2026-11-06 ～ 11-07。
+- 预算和约束：
+  - 每个任务 24 小时挂钟时间，截止后 `fml-val` 拒绝新的运行；
+  - 提示词说明最多 100 次 `fml-val`（失败的也算），事后审计；单次运行上限 2400 秒；
+  - 只能通过 `fml-val` 训练，shell 里只做快速检查（提示词约束，事后审计会话记录）。
+- `fml-val` 每次把当前的目标文件放进一份新的 baseline 仓库副本里运行 val 命令，所以开发时看到的 val 和最终评测用的是同一份代码。最终提交由 agent 用 `fml-submit` 选择。
+- baseline：**g7e.24xlarge 版**（3.5）。提示词和下表的 NI 都用这一版。
+- 最终 test：会话结束后，在一个配置相同但使用真实数据的新沙盒里，把提交的 run 重新训练一遍（val 命令，不设超时，和 harness 一致），再跑 test 命令。
+- 提示缓存：第 1 批是默认的 5 分钟，第 2 批是 1 小时（`CLAUDE_CODE_PROMPT_CACHE_TTL=1h`）。这只影响费用，不影响 agent 的行为。
+
+**结果**（NI 的定义见 6.9，口径为 **g7e.24xlarge 版 baseline**）
+
+| 任务 | 指标 | baseline val / test（g7e.24xlarge 版） | 提交的 run（val） | Claude Code test | **NI（g7e.24xlarge 版）** | 参考：ai_scientist_v2 的 NI（g7e.24xlarge 版，5.1） | `fml-val` 次数 | 费用 |
+|---|---|---|---|---|---|---|---|---|
+| pycil | avg_incremental_acc ↑ | 0.5925 / 0.5944 | 75（0.7789） | 0.7703 | **0.1759** | 0.1627 | 75 | $196 |
+| usb | test_acc ↑ | 0.0827 / 0.0861 | 39（0.3823） | 0.3787 | **0.2926** | 0.0863 | 41 | $149 |
+| domainbed（ColoredMNIST） | in_acc ↑ | 0.2393 / 0.2501 | 96（0.7340） | 0.7433 | **0.4932** | 0.5026 | 96 | $19 |
+| officehome | avg_acc ↑ | 0.9011 / 0.8570 | 95（0.9203） | 0.8782 | **0.0212** | 0.0212 | 95 | $9 |
+| openood | auroc ↑ | 0.8708 / 0.9028 | 65（0.9594） | 0.9993 | **0.0965** | 0.0900 | 65 | $26 |
+| opacus | test_acc ↑ | 0.5881 / 0.5870 | 49（0.7722） | 0.7697 | **0.1827** | 0.0882 | 51 | $19 |
+| privacymeter | AUC_gap ↓ | 0.3278 / 0.3187 | 95（0.0008） | 0.0023 | **0.6327** | 0.6357 | 95 | $14 |
+| ART | defense_score ↑ | 0.2893 / 0.2838 | 92（0.9966） | 0.9968 | **0.7131** | 0.6903 | 92 | $144 |
+| **MEAN（Lite）** | | | | | **0.3260** | 0.2846 | | **$577** |
+
+- 用 `compute_agent_metrics.py benchmark_results/claude_code --lite` 打分，8 个任务的 `note` 都是 `ok`：test 完整、没有违反约束。privacymeter 的两个 TPR 都满足约束，test 准确率约 0.75；opacus 的 ε 是 7.997。
+- **最终重训的复现性**：重训得到的 val 和 `fml-val` 记录的相同（usb 和 privacymeter 的训练不确定，分别差 0.0046 和 0.0026）。最终重训都在 2400 秒内，最长的是 usb，2109 秒。
+- **和 ai_scientist_v2 比**：同一版 baseline 下是 0.3260 对 0.2846，差距主要来自 usb、opacus 和 ART。两次测试的协议不同，比较时要注意：
+  - ai_scientist_v2：每个任务 100 步，最终 test 用 val 最优的那一步；在 g7e.12xlarge 上运行，超时 2400/4800 秒；提示词里是 g7e.12xlarge 版 baseline；
+  - Claude Code：每个任务 24 小时、最多 100 次 `fml-val`，由 agent 自己选择提交；单次 2400 秒；CPU 按槽位分配。
+- **换 baseline 的影响**：用 g7e.12xlarge 版是 0.3225，用原始 baseline 是 0.2944，公式不变，只换 `p_baseline`。
+- **费用**：第 1 批 4 个任务约 $508，其中 88% 是缓存写入，集中在 pycil、usb、ART 三个任务上。这三个任务每次 `fml-val` 要 17～35 分钟，超过了默认 5 分钟的缓存时长，agent 每次回来都要把整个上下文重新写入缓存。第 2 批改用 1 小时缓存后，4 个任务约 $69。按第 1 批的实际请求序列回放估算，1 小时缓存能让 pycil、usb、ART 的费用各降低约 87%。费用按会话记录里的 token 用量计算，价格（每百万 token 输入 $4、5 分钟缓存写 $5、1 小时缓存写 $8、缓存读 $0.20、输出 $20）是从 Claude Code 自己的计费记录反推的。
+
+**各任务的方法与判断**（依据各任务的 `FINAL_REPORT.md` 和会话记录）
+
+| 任务 | 提交的代码做了什么 | 判断 |
+|---|---|---|
+| **officehome** | agent 发现任务数据每个域下只有 `train/`、`val/` 两个子目录，DomainBed 因此只看到 **2 类**，标签含义是"文件在不在 `val/` 下"，图像内容里没有可学的信号。它据此提交了一个基本只按类先验预测的模型：冻结骨干的线性探针，加强 L2 约束 | **分数没有意义**：val 0.9203 和 test 0.8782 都是多数类的比例，ai_scientist_v2 也是同样的分数。这是上游数据准备的问题（见第 7 章） |
+| **domainbed** | 训练一个只学颜色的偏置模型，按"类别 × 偏置模型是否预测对"分组重新加权，再加 V-REx、仿射增强、EMA。agent 明确拒绝了第 3 次 run（val 0.906，test 0.9009）：那次学到的是反向的颜色规则，在训练域上只有 0.15。它也刻意没有用灰度化或颜色通道交换 | 常规方法，接近只看形状的上限（约 0.75）。和 ai_scientist_v2 不同，没有手工去掉颜色 |
+| **privacymeter** | 交叉折蒸馏（SELENA 风格）：每个训练样本的目标，由没见过它的 teacher 给出；推理时把 logits 放大 500 倍（置信度屏蔽），让输出接近硬标签 | **符合规则，但利用了评测的弱点**。置信度屏蔽主要针对的是这类基于置信度的审计攻击本身 |
+| **ART** | 交叉验证式毒样本检测（样本由没见过它的模型预测，标签不一致就剔除）加重新训练；模型里内置一个输入过滤器（去掉稀疏的亮像素图案）和测试时增强 | **利用了题目先验**：过滤器的阈值是按触发器的形状定的，触发器定义在评测脚本里，沙盒内可见 |
+| **openood** | 2 个 ResNet-18 的集成；旋转自监督和 SLA 联合头；训练图像特征库上的 KNN、能量分数，以及中间层"风格"统计量的加权组合 | 常规方法。开发时用合成的门牌号数字作为远 OOD 代理来选权重，利用了任务说明里"test 用 SVHN"这一点，和 5.2 对 ai_scientist_v2 的判断一样 |
+| usb | SoftMatch 风格的伪标签加权、GPU 上的多视图 RandAugment、CoMatch 风格的图对比损失、EMA、WRN-28-4。训练循环是固定的，这些都实现在模型内部 | 常规方法。只用了 200 个有标签样本 |
+| pycil | DER 风格的动态扩展（每个任务新增一个 ResNet-32），旧分类头的 logit 蒸馏，权重对齐，数据和增强放到 GPU 上（训练轮数因此约为原来的 5 倍） | 常规方法（任务说明允许换成 DER） |
+| opacus | WRN-16-2 加权重标准化和 GroupNorm，增强倍数 K=6（每个真实样本的多视图梯度先求和再裁剪），自定义反向得到逐视图损失的平均，EMA，`val_ratio` 改为 0.02 | 常规方法。DP 保证仍然成立：逐样本裁剪按真实样本做，学习率调度和 EMA 都是后处理，Opacus 的隐私核算没有改动 |
+
+**审计**（`scripts/claude_code/finalize.py`，依据 `fml-val` 的记录和 Claude Code 的会话记录）
+
+- 没有发现访问 test 的命令（`--split test`、重建 test 索引等），没有下载数据或模型、安装包，也没有超过 100 次 `fml-val`。
+- usb 有 6 次速度测试，各 2～4 分钟，超出了规则里"约 1 分钟"的快速检查。这些测试只测每步耗时，评估是关掉的。
+- 其余几个标记都是误报：有的 agent 用排队脚本连续调用 `fml-val`，所以命令数比运行次数少；有的命令只是等日志出来后用小脚本做离线分析。
+
+**运行中遇到的问题**
+
+- `/goal` 的判定模型在会话末尾几次"无法完成判定"：
+  - 第 1 批的 pycil 和 domainbed 在 3 次自动重试后暂停，要手动输入 `continue` 才判定完成；
+  - 其余任务重试 1～2 次后恢复。
+  - 这些都发生在 agent 完成工作之后，不影响结果。
+- domainbed 每次运行只要约 2 分钟，用 4.3 小时就跑完了 96 次，按设计进入 `WRAP-UP` 后停止，剩下的时间空闲。
+- officehome 第一次启动后手动操作出了问题，于是删掉这次运行，从头重新开始。表中是重新开始的那一次。
+- 在沙盒的 bash 提示符下（不是在 Claude Code 里）按 Ctrl-C 会结束整个沙盒，`launch.log` 里记为 `sandbox ended by signal 2`。
+
 ---
 
 ## 6. 复现全流程
@@ -518,6 +590,9 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 - [ ] 在缓存为空的机器上验证 `setup.py --data-cache` 的自动下载（目前只有 MNIST 实际走过这条路径）
 - [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）和 g7e.24xlarge 上的 `/mnt/nvme/data/_downloads/`（2.1 GB）
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
+- [x] Claude Code（`/goal` 模式）的 Lite 测试与打分（5.4）
+- [ ] officehome 实际只有 2 类（5.4）：每个域下只有 `train/`、`val/` 两个子目录，DomainBed 把它们当成类别，所以模型学的是"文件在不在 `val/` 下"，不是 65 类物体。是否改为按类别目录组织数据（例如合并每个域的 `train/` 和 `val/`），需要决定。这会改变 baseline 和所有已有结果
+- [ ] g7e.24xlarge 的 `/mnt/nvme`（实例存储 RAID）不在 `/etc/fstab` 里，重启后要手动 `sudo mount /dev/md0 /mnt/nvme`。2026-11-08 这台机器被外部自动更新加重启过一次
 
 ---
 
@@ -658,6 +733,7 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | `scripts/reproduction/run_smoke_lite.sh` | Lite 任务的冒烟测试（6.7）。默认是 7 个任务 / 2 张卡，可用 `SMOKE_TASKS` / `EXTRA_OVERRIDES` 自定义 |
 | `scripts/reproduction/run_lite_queue.sh` | Lite 任务的正式测试，按位置排队；`AGENT`、`QUEUE_SLOTS` 可换 agent 和排队方式（6.8） |
 | `compute_agent_metrics.py` | 打分，输出原始指标、NI 和过程指标三张表（6.9） |
+| `docs/claude_code_agent_design.md`、`scripts/claude_code/` | Claude Code 作为 agent 的方案、沙盒、`fml-val` 等工具、最终 test、审计和汇总（5.4） |
 
 以下运行产物不在版本库里：
 
@@ -670,4 +746,7 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | g7e.12xlarge | `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
 | g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/` | 5.1 的三张表（CSV）和嵌入缓存 |
 | g7e.12xlarge | `benchmark_results_smoke/` | 冒烟测试结果 |
+| g7e.24xlarge | `/mnt/nvme/cc_runs/<TASK>/formal/` | 5.4 的运行目录：`task/`（工作区、`runs/` 运行记录、`scratch/` 笔记和 `FINAL_REPORT.md`）、`claude_config/`（会话记录）、`final/`（最终 test 和 `report.json` 审计结果） |
+| g7e.24xlarge | `/mnt/nvme/data_agent/<TASK>/` | 5.4 的掩码数据 |
+| g7e.24xlarge | `benchmark_results/claude_code/<Task>/formal/`、`metric_reports/claude_code_opus55_lite/` | 5.4 的 harness 格式结果和打分表（`table_ni_baseline_versions.csv` 是三版 baseline 的 NI 对照） |
 | g7e.12xlarge | `docs/reproduction_logs/` | agent 运行日志和资源采样：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`，冒烟测试在 `smoke_lite7/`；L4 的结果和日志复制在 `l4/` 下 |

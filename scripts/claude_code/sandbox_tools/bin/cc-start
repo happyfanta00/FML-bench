@@ -1,0 +1,6 @@
+#!/bin/bash
+# Start Claude Code for this task (extra arguments are passed through, e.g. -p "$(cat /task/goal.txt)").
+repo=$(/usr/bin/python3 -c 'import json;m=json.load(open("/task/meta.json"));print("/task/workspace/%s/%s" % (m["task"], m["repo_subdir"]))')
+cd "$repo" || exit 1
+exec claude --model "$ANTHROPIC_MODEL" --dangerously-skip-permissions \
+  --disallowedTools WebFetch,WebSearch "$@"

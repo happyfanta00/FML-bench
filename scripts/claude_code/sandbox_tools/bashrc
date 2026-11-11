@@ -1,0 +1,24 @@
+# Shell inside a Claude Code run sandbox (FML-bench).
+PS1='[fml:$FMLBENCH_TASK \W]\$ '
+eval "$(/usr/bin/python3 - <<'PY'
+import json, time
+m = json.load(open("/task/meta.json"))
+print(f'export FML_REPO=/task/workspace/{m["task"]}/{m["repo_subdir"]}')
+print(f'FML_DEADLINE="{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(m["deadline"]))}"')
+print(f'FML_CLOSE="{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(m.get("sandbox_close") or m["deadline"] + 3600))}"')
+PY
+)"
+cd "$FML_REPO"
+cat <<MSG
+================================================================================
+ FML-bench task $FMLBENCH_TASK  (deadline $FML_DEADLINE)
+ This sandbox (and Claude Code in it) is closed automatically at $FML_CLOSE.
+ Working directory: $FML_REPO
+ Start Claude Code:            cc-start
+   then paste the goal from:   cat /task/goal.txt
+ Resume a previous session:    cc-start --continue
+ Headless alternative:         cc-start -p "\$(cat /task/goal.txt)" --output-format stream-json \\
+                                 --verbose --max-budget-usd <usd> > /task/scratch/stream.jsonl
+ Budget status:                fml-status
+================================================================================
+MSG
