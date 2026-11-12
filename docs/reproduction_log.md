@@ -159,6 +159,39 @@ scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline
 - `extract_usage_info` 能正确读取 Claude 响应的 `input_tokens` / `output_tokens`（含缓存部分）。
 - SDK 版本为 0.84.0，走 bedrock-runtime（`anthropic.AnthropicBedrock`）。Bedrock Mantle 端点在本账号下对这个模型返回 404。
 
+**Bedrock 上的 OpenAI 模型（GPT-6 Astra，5.5）**
+
+- 用法：`--provider OpenAIBedrock --model us.openai.gpt-6-astra`。区域和凭证的取法同上，不需要 API key。
+- 2026-11-10 在 us-west-2 和 us-east-1 能查到的 OpenAI 模型：
+  - GPT-6.1 Sol/Terra、GPT-6 Sol/Luna/Astra、GPT-5.6 Sol/Terra/Luna、GPT 5.5、GPT 5.4：只能通过 `us.` / `global.` 推理配置文件调用。
+  - gpt-oss-120b/20b、gpt-oss-safeguard-120b/20b：可以直接按需调用。
+- 实现：通过 boto3 调用 Bedrock 的 Converse API，改动的位置和 Claude 分支相同。
+  - `agents/llm.py`：新增 `OpenAIBedrock` provider、`BedrockConverseClient`、`bedrock_converse_create` / `bedrock_response_text` / `is_bedrock_converse_client`。
+    - `get_response_from_llm` 遇到这个客户端时，优先走 Converse 分支，不再按模型名分派。
+    - 多轮对话的历史只保留文本，推理内容不回传。
+    - `get_batch_responses_from_llm` 里按名字匹配 `gpt` 的 `chat.completions` 分支会跳过这个客户端。
+  - `agents/code_editor.py`：遇到这个客户端时走 Converse。
+  - `extract_usage_info`：读取 Converse 的 `usage`，`outputTokens` 里包含推理 token。
+- 请求参数：
+  - `maxTokens=64000`，和 Claude 相同（模型上限是 131072）。
+  - `additionalModelRequestFields={"reasoning": {"effort": "high"}}`，和 Claude 的 effort 对应，可以用 `FMLBENCH_BEDROCK_EFFORT` 调整。可选值有 none、low、medium、high、xhigh、max，传错值时 Bedrock 会报错，可见这个参数确实生效了。
+  - 不传 temperature。
+  - boto3 设 `read_timeout=3600`，自适应重试 8 次。
+  - **每次调用都新建 botocore 客户端，不复用连接池里的连接**（原因见下面的"空闲连接问题"）。
+  - 被内容过滤拦截（`guardrail_intervened` / `content_filtered`）时直接抛错，输出被截断时打印警告。
+- 沙盒会透传 `FMLBENCH_BEDROCK_EFFORT`。`run_lite_queue.sh` 新增 `MODEL`、`PROVIDER`、`LABEL`、`OUTPUT_DIR` 四个环境变量，默认值和原来一样。
+- **空闲连接问题**（2026-11-11 发现并修复）：
+  - 第一版只创建一个 boto3 客户端并复用它的连接池。一个连接空闲一段时间后，网络路径上会把它静默丢掉：不发 FIN 也不发 RST，本机仍认为连接是 ESTABLISHED。
+  - 下一个请求被发到这条死连接上，数据一直卡在发送队列里，内核按 `net.ipv4.tcp_retries2=15` 重传约 15 分钟才报错，然后 botocore 换新连接重试，约 1 分钟就成功。
+  - 每一步大约有 2 次 LLM 调用，所以每步多出约 33 分钟。比如 ART 训练一步只要 40 秒，但每 34 分钟才走一步。CloudWatch 上没有限流，单次调用的平均延迟只有 22.6 秒。
+  - 用 `ss -tnpo` 能看到这些连接的 Send-Q 有 5～123 KB 一直没被确认，重传计数到了 11～14 次；`py-spy dump` 显示进程卡在 `bedrock_converse_create` 的读响应上。
+  - 卡住的请求没有到达服务端，所以不会重复计费，也不影响 LLM 的输出。
+  - Anthropic SDK（httpx）的空闲连接 5 秒就过期，所以 Opus 的测试没有遇到这个问题。
+  - 修复：`BedrockConverseClient.runtime` 每次调用都从同一个 boto3 Session 新建客户端。对照测试：两个客户端各调用一次，空闲 10 分钟后再调用一次。新建客户端的第二次调用 0.8 秒完成；复用客户端的第二次调用卡住，状态和正式运行时一样（Send-Q 不为 0，在重传）。
+- 验证：
+  - 在沙盒里测试了单轮、多轮和 code_editor 的编辑，都正常，token 也记录正确。
+  - 用 ai_scientist_v2 在 opacus 和 domainbed 上各跑了 2 步的冒烟测试，都完成了 val 和最终 test（domainbed test 0.748，opacus 0.601）。日志在 `docs/reproduction_logs/smoke_gpt6astra/`，结果在 `benchmark_results_smoke/gpt6astra/`。
+
 ### 4.2 运行入口适配 uv 环境
 
 - `benchmark/utils.py::env_command(env_name, args)`：如果 `~/fml_envs/<conda_env>/bin/python` 存在，就设置 `VIRTUAL_ENV`，把该环境放到 PATH 最前面后直接执行；否则退回 `conda run`。
@@ -267,14 +300,90 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
 
 只有 privacymeter 的分数依赖于评测弱点。如果要堵住，需要改 benchmark，比如加入自适应攻击（对查询做扰动），已记在待办里。
 
-### 5.3 autoresearch × FML-bench-Lite × Opus 5.5（进行中）
+### 5.3 autoresearch × FML-bench-Lite × Opus 5.5
 
-**设置**：和 5.1 相同（g7e.12xlarge，g7e.12xlarge 版 baseline），只是把 agent 换成 autoresearch（`configs/agents/autoresearch.yaml`），8 个任务的超时都用 4800 秒。2026-11-06 启动，结果待补。
+**设置**
+
+- 和 5.1 相同：g7e.12xlarge，g7e.12xlarge 版 baseline，Bedrock Opus 5.5，沙盒，每个任务 100 步。
+- agent 换成 autoresearch（`configs/agents/autoresearch.yaml`），8 个任务的超时都用 4800 秒。
+- 排队方式和 6.8 的命令相同：
+  - GPU0：officehome；privacymeter → pycil；
+  - GPU1：usb；openood → domainbed → opacus；
+  - CPU：ART。
+- 运行时间：2026-11-06 05:59 ～ 11-10 08:57，约 99 小时。日志在 `docs/reproduction_logs/full_lite8_autoresearch/`。
+- **opacus 没有跑满 100 步**：
+  - 它排在最后，按每步约 12 分钟算，跑完还要 11 小时左右，所以按决定在第 41 步结束后中断（SIGTERM）。
+  - 中断时 runner 会清理工作区副本并直接退出，不跑最终 test，也不写 `summary.json`。所以这两样是在结果目录里手工补的：
+    - **最终 test**：`manual_final_test.py` 按 `_execute_test` 的流程做：新建工作区副本，恢复最佳步（第 39 步）的快照，不设超时跑 `pre_test_val`，再跑 test。日志在 `privacy_opacus_final_test.log`。
+    - **`summary.json`**：`rebuild_summary.py` 用运行日志里每步的 KEEP/DISCARD/CRASH 行、`run_<step-1>/` 下的 val 结果和快照重建。
+  - 两个脚本都在 `benchmark_results/autoresearch/Privacy_opacus/20261110_010021_b59cf5bb/` 下。
+  - token 用量只保存在进程内存里，已经丢失，所以 opacus 的 token 数缺失。
 
 **autoresearch 怎么工作**（Karpathy 的贪心爬山协议）：
 - 每一步由 LLM 根据当前最好的代码和历史实验表提出一个想法，改代码后跑 val。
 - val 严格优于当前最好值才保留，否则退回当前最好的代码；崩溃时最多调试 3 次。
 - 最终 test 用的是最早达到最佳 val 的那一步的代码，即使它没有超过 baseline 也照样跑 test，这时 NI 被截断为 0。
+
+**结果**（NI 的计算方法同 6.9）
+
+| 任务 | agent 最佳 val（被测步） | agent test | **NI（g7e.12xlarge 版）** | NI（g7e.24xlarge 版） | NI（原始 baseline） | ai_scientist_v2 的 NI（5.1 主列） | token（M） | 耗时（h） | 失败步数 |
+|---|---|---|---|---|---|---|---|---|---|
+| pycil | 0.8127（95） | 0.8218 | **0.2274** | 0.2274 | 0.2266 | 0.1627 | 2.59 | 59.2 | 4 |
+| usb | 0.1723（72） | 0.1483 | **0.0621** | 0.0621 | 0.0693 | 0.0863 | 1.95 | 37.4 | 0 |
+| domainbed（ColoredMNIST） | 0.7375（87） | 0.7481 | **0.4980** | 0.4980 | 0.4612 | 0.5026 | 8.81 | 6.3 | 21 |
+| officehome | 0.9203（53） | 0.8782 | **0.0212** | 0.0212 | 0.0153 | 0.0212 | 9.44 | 51.3 | 5 |
+| openood | 0.9501（98） | 0.9846 | **0.0634** | 0.0818 | 0.0544 | 0.0716 | 2.06 | 84.7 | 2 |
+| opacus（41 步） | 0.7526（39） | 0.7370 | **0.1499** | 0.1499 | 0.1492 | 0.0882 | 缺失 | 7.9 | 4 |
+| privacymeter | 0.0051（93） | 0.0144 | **0.6075** | 0.6086 | 0.6139 | 0.6347 | 2.28 | 23.0 | 68 |
+| ART | 0.9683（79） | 0.9672 | **0.6751** | 0.6835 | 0.4898 | 0.6820 | 2.58 | 21.3 | 4 |
+| **MEAN（Lite）** | | | **0.2881** | 0.2916 | 0.2600 | 0.2812 | | | |
+
+- **和 ai_scientist_v2 比**：
+  - 平均 NI 基本持平，0.2881 对 0.2812。
+  - autoresearch 在 pycil 和 opacus 上明显更好；opacus 只跑了 41 步就到了 0.15，ai_scientist_v2 跑满 100 步是 0.09。
+  - usb、openood、privacymeter 上略差，其余任务接近。
+  - 去掉利用题目先验的 domainbed，其余 7 个任务 autoresearch 约为 0.26，ai_scientist_v2 约为 0.25。
+  - 再去掉 privacymeter（ai_scientist_v2 在这个任务上利用了评测弱点，autoresearch 没有，见下面的检查），约为 0.20 对 0.19。
+- **和 Claude Code（5.4）比**：按 g7e.12xlarge 版 baseline，Claude Code 的平均 NI 是 0.3225，高于 autoresearch 的 0.2881 和 ai_scientist_v2 的 0.2812。但协议不同（每个任务 24 小时、由 agent 自己选择提交、在 g7e.24xlarge 上运行，见 5.4），只能作为参考。
+- **约束都满足**：
+  - privacymeter 的两个 TPR 都是 0，test 准确率 0.632（下限 0.61）；
+  - opacus 的 ε 是 7.9931。
+- **失败步多的任务**：
+  - privacymeter 的 100 步里有 68 步失败，都是违反了约束，代码本身没有崩溃：
+    - 66 步是 TPR 约束。`postprocess.py` 在 val 上要求两个 TPR 都是 0，这些步的 TPR@0.1%FPR 在 0.0006～0.003 之间。
+    - 2 步是准确率低于 0.61。
+  - domainbed 有 21 步失败。
+- **officehome 的分数没有意义，三个 agent 的数值完全相同**：
+  - autoresearch、5.1 的 ai_scientist_v2 和 5.4 的 Claude Code 都是 val 670/728、test 1492/1699，所以 NI 都是 0.0212，虽然三边的代码各不相同。
+  - 原因是 5.4 发现的数据问题：每个域下只有 `train/`、`val/` 两个子目录，DomainBed 把它们当成 2 个类别。
+  - 本机核对过：Art 域 `train/` 下有 2162 张图，`val/` 下有 265 张，合计 2427 张，正好等于 val 加 test 的 728 + 1699；而 670 + 1492 = 2162。也就是说，模型对 Art 域的每张图都预测成多数类 `train`，分数就是多数类的占比。
+  - 之前把相同的数值解释为"val 已经饱和、碰巧相同"，这是错的。autoresearch 有 34 步的 val 完全相同，也是因为输出总是多数类。
+  - 这个任务的 NI 对三个 agent 都一样，不影响它们之间的比较。是否修复数据，记在第 7 章。
+- **耗时**：
+  - 总共约 99 小时，是 ai_scientist_v2（约 50 小时）的两倍。时间几乎都花在训练上，每个任务的 LLM 时间只有 1～2 小时。
+  - 慢的原因是 autoresearch 会不断加长训练，比如 openood 的被测步训练了 500 个 epoch。
+  - 超过 2400 秒的步数：openood 75 步，pycil 35 步，officehome 2 步，usb 1 步；超过 4800 秒而超时的：pycil 2 步，openood 2 步，officehome 1 步。
+  - **pycil 和 openood 的被测步本身就超过 2400 秒**（val 分别用了 3800 秒和 3520 秒）。如果按默认 2400 秒的标准协议，这两步会超时，结果不能直接和用 2400 秒跑的结果对比。ai_scientist_v2 没有这个问题（5.1）。
+- **token**：7 个任务共 29.7M（不含 opacus），ai_scientist_v2 的 8 个任务共 25.3M。domainbed 和 officehome 各用了约 9M，其余任务各 2～2.6M。
+- **完整表格**：`metric_reports/autoresearch_opus55_lite/` 下的三张 CSV。打分时顶层 baseline 还是 g7e.12xlarge 版，所以 CSV 里的 NI 就是主列。另外两列是手工算的。
+
+**快照检查**（方法同 5.2）
+
+- **全部快照的静态扫描**：只命中了 `.eval()` 和 `setattr` 这类误报。
+- **被测步逐个阅读**：8 个任务都没有读取 val/test 数据，也没有改动评测代码。
+
+| 任务 | 被测代码做了什么 | 判断 |
+|---|---|---|
+| **domainbed**（第 87 步） | ① 输入是 2 通道时，训练中随机交换红、绿两个通道；预测时对两种通道顺序取平均，等于让模型对颜色不敏感；② GCE 损失（q = 0.7）；③ mixup、SAM，以及平移、旋转 TTA | **又一次利用了 ColoredMNIST 的题目先验**，和 5.1 一样，只是换了做法 |
+| privacymeter（第 93 步） | 增强、λ 有截断的 Mixup/CutMix、标签平滑、flooding、SWA（重算 BN 统计量）、梯度裁剪。只改了 `default_trainer.py` | **常规的正则化防御**，没有 5.1 那种按哈希路由的做法 |
+| ART（第 79 步） | 谱签名过滤、按损失剔除样本、重新初始化后重训。`model.py` 加了输入端的 3×3 中值滤波层（评测时也生效），并改成 5×5 卷积 64 通道、全连接 1024 维 | 常规方法。`model.py` 是任务允许修改的文件。test 的 clean_acc 是 0.948，poison_acc 是 0.013 |
+| pycil（第 95 步） | DER 风格的 ResNet-34（CIFAR 版的 stem）、SLA 辅助头、Balanced Softmax、18 视图 TTA、LUCIR 风格的蒸馏。只改了 `models/icarl.py` | 常规方法。没有改样例存储，也没有在训练时用 `test_loader` |
+| usb（第 72 步） | 在允许修改的 `get_training_config` 里把阈值从 0.95 改成 0.7；加了 BlurPool 和 Cutout | 常规方法 |
+| openood（第 98 步） | LogitNorm、TrivialAugment 风格的增强、在翻转视图之间共享扰动的 ODIN 打分，训练 500 个 epoch | 常规方法 |
+| officehome（第 53 步） | SGD + Nesterov、SAM、SWA、翻转 TTA | 方法本身是常规的，但分数只是多数类的占比，见上文 |
+| opacus（第 39 步） | 带 Weight Standardization 的 VGG 风格 CNN（GroupNorm + SiLU，Tramer & Boneh 2021）；最后一层零初始化；在模型内部做输入标准化；训练时对原图和翻转图的 logits 取平均；参数 EMA；推理时 50 视图 TTA（5×5 平移加翻转，按高斯权重平均）；B = 8192，200 个 epoch，lr 0.8。只改了 `algorithm.py` | 常规方法（De et al. 2022 的配方）。**DP 保证仍然成立**：翻转的两个视图来自同一个样本，Opacus 把两次调用的逐样本梯度累加后再裁剪；Weight Standardization 不增加参数，走 functorch 计算逐样本梯度；EMA 是后处理。**val 和 test 用的权重不一样**：EMA 存在模型的普通 Python 属性里，不在 `state_dict` 中，所以 test 加载 checkpoint 后用的是最后一步的权重，而不是 EMA。val 0.7526 比 test 0.7370 高，部分原因就在这里。这对 agent 不利，不算违规 |
+
+- 和 5.1 相比，autoresearch 只有 domainbed 依赖题目先验，privacymeter 的结果是正常的防御效果。
 
 ### 5.4 Claude Code × FML-bench-Lite × Opus 5.5
 
@@ -347,6 +456,30 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
 - domainbed 每次运行只要约 2 分钟，用 4.3 小时就跑完了 96 次，按设计进入 `WRAP-UP` 后停止，剩下的时间空闲。
 - officehome 第一次启动后手动操作出了问题，于是删掉这次运行，从头重新开始。表中是重新开始的那一次。
 - 在沙盒的 bash 提示符下（不是在 Claude Code 里）按 Ctrl-C 会结束整个沙盒，`launch.log` 里记为 `sandbox ended by signal 2`。
+
+### 5.5 ai_scientist_v2 × FML-bench-Lite × GPT-6 Astra（进行中）
+
+**设置**
+
+- 和 5.1 相同：g7e.12xlarge，agent 参数用默认值，每个任务 100 步，全部在沙盒中运行。
+- 模型换成 Bedrock 的 `us.openai.gpt-6-astra`（provider `OpenAIBedrock`，reasoning effort high，见 4.1）。
+- baseline 用 **g7e.12xlarge 版**，和 5.1、5.3 一样。运行期间，顶层的 baseline 文件临时换成了 `g7e12xlarge/` 下的文件（6.5），打分后用 `git checkout ml_tasks` 恢复。
+- 8 个任务的超时都用 4800 秒，排队方式同 6.8（opacus 排在 GPU1 的 openood → domainbed 之后）。
+- 2026-11-11 02:49 启动。日志在 `docs/reproduction_logs/full_lite8_ai_scientist_v2_gpt6astra/`，结果在 `benchmark_results/gpt6astra/ai_scientist_v2/`，和 5.1 的 Opus 结果分开存放。
+- **第一次运行作废**：
+  - 第一次是 11-10 11:54 启动的。因为 4.1 说的空闲连接问题，每步多等约 33 分钟，14.5 小时只跑了 16～25 步。
+  - 按决定，在 11-11 02:30 前后中断（SIGTERM，工作区副本已自动清理），修复后全部重跑。
+  - 作废的结果和日志改名保留为 `benchmark_results/gpt6astra_aborted_20261111/` 和 `docs/reproduction_logs/full_lite8_ai_scientist_v2_gpt6astra_aborted_20261111/`，不参与打分。
+- 5.1 记录的已知问题（想法生成没有运行）这里同样存在，两次运行的条件相同。
+
+```bash
+L=docs/reproduction_logs/full_lite8_ai_scientist_v2_gpt6astra
+AGENT=ai_scientist_v2 MODEL=us.openai.gpt-6-astra PROVIDER=OpenAIBedrock LABEL=gpt6astra OUTPUT_DIR=benchmark_results/gpt6astra \
+QUEUE_SLOTS="0|generalization_officehome;0|privacy_privacymeter continual_learning_pycil;1|data_efficiency_usb;1|robustness_openood generalization privacy_opacus;|robustness_and_reliability_art" \
+setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /dev/null &
+```
+
+结果待补。
 
 ---
 
@@ -585,8 +718,10 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 - [x] 合并 g7e.24xlarge 上的改动：数据缓存、按单卡重测的 baseline、停止跟踪运行产物。两版 baseline 都保留（3.5）
 - [ ] domainbed（ColoredMNIST）利用题目先验大幅提升（见 5.2）：要不要通过改任务说明来限制（这属于修改 benchmark，需要决定）
 - [ ] `setup.py` 建 uv 环境时是否固定只用 uv 管理的 Python（`--python-preference only-managed`），避免用到宿主机的解释器
-- [ ] autoresearch 正式测试（5.3）结束后：统计超时步数，用 `--lite` 打分（g7e.12xlarge 版为主，同时给出 g7e.24xlarge 版，同 5.1），检查最佳步代码快照，和 ai_scientist_v2 对比
-- [ ] autoresearch 结束后，把 g7e.12xlarge 上的工作目录更新到合并了 g7e.24xlarge 改动的提交。为了不影响正在运行的测试，目前停在合并前的 `7765d6a`。更新会删除不再跟踪的日志文件，需要先备份，或者更新后用 `git restore --source=7765d6a --worktree -- docs/reproduction_logs benchmark_results_smoke` 恢复
+- [x] autoresearch 的 Lite 正式测试、打分和快照检查（5.3）。opacus 在第 41 步中断，最终 test 和 `summary.json` 是手工补的
+- [x] 把 g7e.12xlarge 上的工作目录更新到合并提交 `81a483c`。不再跟踪的文件用 `git restore --source=7765d6a --worktree -- docs/reproduction_logs benchmark_results_smoke metric_reports rebaseline_results` 恢复到了磁盘上
+- [ ] autoresearch 的 pycil、openood 被测步超过 2400 秒（5.3）：要不要用 2400 秒的标准超时重跑这两个任务，或者在比较时注明
+- [ ] ai_scientist_v2 × GPT-6 Astra（5.5）结束后：统计超时步数；打分（g7e.12xlarge 版为主，同时给出 g7e.24xlarge 版和原始 baseline 的结果）；检查最佳步的代码快照；和 Opus（5.1）对比；最后用 `git checkout ml_tasks` 恢复顶层 baseline
 - [ ] 在缓存为空的机器上验证 `setup.py --data-cache` 的自动下载（目前只有 MNIST 实际走过这条路径）
 - [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）和 g7e.24xlarge 上的 `/mnt/nvme/data/_downloads/`（2.1 GB）
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
@@ -733,6 +868,7 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | `scripts/reproduction/run_smoke_lite.sh` | Lite 任务的冒烟测试（6.7）。默认是 7 个任务 / 2 张卡，可用 `SMOKE_TASKS` / `EXTRA_OVERRIDES` 自定义 |
 | `scripts/reproduction/run_lite_queue.sh` | Lite 任务的正式测试，按位置排队；`AGENT`、`QUEUE_SLOTS` 可换 agent 和排队方式（6.8） |
 | `compute_agent_metrics.py` | 打分，输出原始指标、NI 和过程指标三张表（6.9） |
+| `docs/lite_results_by_method.csv` | ai_scientist_v2、autoresearch、Claude Code 三种方法的 Lite 结果汇总。每行一个任务，每个方法两列：NI 和 baseline test→agent test。前两个方法按 g7e.12xlarge 版 baseline，Claude Code 按 g7e.24xlarge 版（5.1、5.3、5.4） |
 | `docs/claude_code_agent_design.md`、`scripts/claude_code/` | Claude Code 作为 agent 的方案、沙盒、`fml-val` 等工具、最终 test、审计和汇总（5.4） |
 
 以下运行产物不在版本库里：
@@ -744,7 +880,8 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | g7e.24xlarge | `docs/reproduction_logs/g7e24/` | setup 日志，以及 `rebaseline/` 下的队列记录、`summary.txt`、`dmon.txt` |
 | g7e.12xlarge | `rebaseline_results/<TASK>[__rerun2]/` | g7e.12xlarge 版 baseline 的原始输出和重跑对照 |
 | g7e.12xlarge | `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
-| g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/` | 5.1 的三张表（CSV）和嵌入缓存 |
+| g7e.12xlarge | `benchmark_results/gpt6astra/ai_scientist_v2/<Task>/` | 5.5 的结果（GPT-6 Astra），目录结构同上 |
+| g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/`、`metric_reports/autoresearch_opus55_lite/` | 5.1、5.3 的三张表（CSV）和嵌入缓存 |
 | g7e.12xlarge | `benchmark_results_smoke/` | 冒烟测试结果 |
 | g7e.24xlarge | `/mnt/nvme/cc_runs/<TASK>/formal/` | 5.4 的运行目录：`task/`（工作区、`runs/` 运行记录、`scratch/` 笔记和 `FINAL_REPORT.md`）、`claude_config/`（会话记录）、`final/`（最终 test 和 `report.json` 审计结果） |
 | g7e.24xlarge | `/mnt/nvme/data_agent/<TASK>/` | 5.4 的掩码数据 |
