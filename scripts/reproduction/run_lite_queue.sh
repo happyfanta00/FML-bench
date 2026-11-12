@@ -7,12 +7,18 @@
 # Env: AGENT (default ai_scientist_v2; must match configs/agents/$AGENT.yaml);
 #      QUEUE_SLOTS: ";"-separated "<CUDA_VISIBLE_DEVICES>|<task-config> ..." slots replacing the
 #        default layout below, e.g. "0|generalization;1|privacy_opacus;|robustness_and_reliability_art";
+#      MODEL / PROVIDER / LABEL (default us.anthropic.claude-opus-5-5 / AnthropicBedrock / opus55);
+#      OUTPUT_DIR (default benchmark_results);
 #      EXTRA: extra run_agent_benchmark.py overrides ("key=value ...").
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 LOG=${1:?usage: run_lite_queue.sh LOG_DIR}
 AGENT=${AGENT:-ai_scientist_v2}
+MODEL=${MODEL:-us.anthropic.claude-opus-5-5}
+PROVIDER=${PROVIDER:-AnthropicBedrock}
+LABEL=${LABEL:-opus55}
+OUTPUT_DIR=${OUTPUT_DIR:-benchmark_results}
 mkdir -p "$LOG"
 cd "$ROOT"
 
@@ -30,11 +36,11 @@ run_slot() {
   local gpu=$1; shift
   for cfg in "$@"; do
     echo "$(date '+%F %T') start $cfg gpu=[$gpu]" >> "$LOG/queue.log"
-    CUDA_VISIBLE_DEVICES=$gpu sandbox/run_in_bwrap.sh \
+    CUDA_VISIBLE_DEVICES=$gpu sandbox/run_in_bwrap.sh --output-dir "$OUTPUT_DIR" \
       --agent-config "configs/agents/$AGENT.yaml" \
       --task-config "configs/tasks/$cfg.yaml" \
-      --model us.anthropic.claude-opus-5-5 --provider AnthropicBedrock \
-      --workspace-label opus55 \
+      --model "$MODEL" --provider "$PROVIDER" \
+      --workspace-label "$LABEL" \
       agent.$AGENT.max_steps=100 agent.$AGENT.execute_timeout=4800 ${EXTRA:-} \
       > "$LOG/$cfg.log" 2>&1
     echo "$(date '+%F %T') end   $cfg rc=$?" >> "$LOG/queue.log"

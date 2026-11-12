@@ -24,11 +24,63 @@ AVAILABLE_PROVIDERS = [
     "OpenRouter",
     "OpenAI",
     "AnthropicBedrock",
+    "OpenAIBedrock",
 ]
+
+# OpenAI models on Amazon Bedrock (e.g. us.openai.gpt-6-astra) go through the Converse API.
+# Same output cap as Claude; reasoning depth is set via reasoning.effort
+# (none/low/medium/high/xhigh/max), default high to match CLAUDE_EFFORT.
+BEDROCK_MAX_TOKENS = 64000
+BEDROCK_EFFORT = os.environ.get("FMLBENCH_BEDROCK_EFFORT", "high")
+
+
+class BedrockConverseClient:
+    """boto3 bedrock-runtime; credentials come from the standard AWS chain.
+
+    Every call gets a new botocore client, so pooled connections are never reused. Idle
+    connections get dropped silently on the network path, and a request sent on one waits
+    for the kernel's TCP retransmission timeout (~15 min) before botocore retries.
+    """
+
+    def __init__(self, region):
+        import boto3
+        from botocore.config import Config
+        self.region = region
+        self._session = boto3.Session(region_name=region)
+        self._config = Config(read_timeout=3600, retries={"max_attempts": 8, "mode": "adaptive"})
+
+    @property
+    def runtime(self):
+        return self._session.client("bedrock-runtime", config=self._config)
 
 
 def is_anthropic_client(client) -> bool:
     return isinstance(client, ANTHROPIC_CLIENTS)
+
+
+def is_bedrock_converse_client(client) -> bool:
+    return isinstance(client, BedrockConverseClient)
+
+
+def bedrock_converse_create(client, model, system_message, messages):
+    """One Converse call; messages use the Converse format. Returns the response dict."""
+    response = client.runtime.converse(
+        modelId=model,
+        system=[{"text": system_message}],
+        messages=messages,
+        inferenceConfig={"maxTokens": BEDROCK_MAX_TOKENS},
+        additionalModelRequestFields={"reasoning": {"effort": BEDROCK_EFFORT}},
+    )
+    stop_reason = response.get("stopReason")
+    if stop_reason in ("guardrail_intervened", "content_filtered"):
+        raise RuntimeError(f"Bedrock blocked the response: stopReason={stop_reason}")
+    if stop_reason == "max_tokens":
+        print(f"Warning: Bedrock response truncated at maxTokens={BEDROCK_MAX_TOKENS}")
+    return response
+
+
+def bedrock_response_text(response) -> str:
+    return "".join(b["text"] for b in response["output"]["message"]["content"] if "text" in b)
 
 
 def claude_messages_create(client, model, system_message, messages):
@@ -118,8 +170,16 @@ def extract_usage_info(response) -> dict:
         "total_tokens": 0
     }
     
+    # Extract from Bedrock Converse response (a dict; outputTokens include reasoning)
+    if isinstance(response, dict) and "usage" in response:
+        usage = response["usage"]
+        usage_info["prompt_tokens"] = (usage.get("inputTokens", 0) + usage.get("cacheReadInputTokens", 0)
+                                       + usage.get("cacheWriteInputTokens", 0))
+        usage_info["completion_tokens"] = usage.get("outputTokens", 0)
+        usage_info["total_tokens"] = usage_info["prompt_tokens"] + usage_info["completion_tokens"]
+
     # Extract from Anthropic Messages response (usage has input_tokens/output_tokens)
-    if hasattr(response, 'usage') and hasattr(response.usage, 'input_tokens'):
+    elif hasattr(response, 'usage') and hasattr(response.usage, 'input_tokens'):
         usage = response.usage
         usage_info["prompt_tokens"] = (usage.input_tokens + (usage.cache_read_input_tokens or 0)
                                        + (usage.cache_creation_input_tokens or 0))
@@ -157,7 +217,7 @@ def get_batch_responses_from_llm(
     if msg_history is None:
         msg_history = []
 
-    if 'gpt' in model:
+    if 'gpt' in model and not is_bedrock_converse_client(client):
         new_msg_history = msg_history + [{"role": "user", "content": msg}]
         if 'gpt-5' in model:
             response = client.chat.completions.create(
@@ -260,7 +320,13 @@ def get_response_from_llm(
     if msg_history is None:
         msg_history = []
 
-    if "claude" in model:
+    if is_bedrock_converse_client(client):
+        # Converse-format history; only the text is kept for replay (reasoning is not passed back).
+        new_msg_history = msg_history + [{"role": "user", "content": [{"text": msg}]}]
+        response = bedrock_converse_create(client, model, system_message, new_msg_history)
+        content = bedrock_response_text(response)
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": [{"text": content}]}]
+    elif "claude" in model:
         # Fork by client type: OpenRouter/OpenAI-compatible clients (openai.OpenAI)
         # don't have `client.messages.create`, so route them through
         # chat.completions.create. Anthropic-native clients keep the original path.
@@ -516,9 +582,9 @@ def extract_json_between_markers(llm_output):
 def create_client(model, provider='OpenAI'):
 
     # Check whether the provider is in the valid list
-    provider_list = ['OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'DeepSeek', 'Google']
+    provider_list = ['OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'DeepSeek', 'Google']
     if provider not in provider_list:
-        raise ValueError(f"Provided {provider} not supported. Supported provides: 'OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'DeepSeek', 'Google'")
+        raise ValueError(f"Provided {provider} not supported. Supported provides: 'OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'DeepSeek', 'Google'")
 
 
     if provider == 'OpenRouter':
@@ -545,6 +611,12 @@ def create_client(model, provider='OpenAI'):
         region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
         print(f"Using Amazon Bedrock ({region}) with model {model}.")
         return anthropic.AnthropicBedrock(aws_region=region, max_retries=8), model
+
+    elif provider == 'OpenAIBedrock':
+        # model is a Bedrock inference-profile ID, e.g. us.openai.gpt-6-astra
+        region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
+        print(f"Using Amazon Bedrock Converse ({region}) with model {model}.")
+        return BedrockConverseClient(region), model
 
     else:
         raise NotImplementedError(f"Provider {provider} not implemented.")

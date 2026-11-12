@@ -106,7 +106,7 @@ for d in /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modese
 done
 # Pass through AWS region/credential settings and the agent knobs if the caller set them.
 for v in AWS_REGION AWS_DEFAULT_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-         AWS_PROFILE FMLBENCH_CLAUDE_EFFORT; do
+         AWS_PROFILE FMLBENCH_CLAUDE_EFFORT FMLBENCH_BEDROCK_EFFORT; do
   [[ -n ${!v:-} ]] && args+=(--setenv "$v" "${!v}")
 done
 [[ -n ${AWS_PROFILE:-} && -d $HOME/.aws ]] && args+=(--ro-bind "$HOME/.aws" "$HOME/.aws")
