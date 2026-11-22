@@ -192,6 +192,35 @@ scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline
   - 在沙盒里测试了单轮、多轮和 code_editor 的编辑，都正常，token 也记录正确。
   - 用 ai_scientist_v2 在 opacus 和 domainbed 上各跑了 2 步的冒烟测试，都完成了 val 和最终 test（domainbed test 0.748，opacus 0.601）。日志在 `docs/reproduction_logs/smoke_gpt6astra/`，结果在 `benchmark_results_smoke/gpt6astra/`。
 
+**自部署的 vLLM 模型（DeepSeek-V4.1-Flash，us-east-2）**
+
+- 服务端：us-east-2 的 p5en.48xlarge（`i-0228e02726602d08b`）上的 systemd 服务 `vllm-deepseek`。它用 8 卡 TP 运行 `deepseek-v4.1-flash-1017`，开启了 `--reasoning-parser deepseek_v41` 和 `--api-key`，上下文 1M。服务只监听 `127.0.0.1:8000`，API key 在服务器的 `~/.config/vllm/deepseek.env` 里。
+- 用法：`--provider VLLM --model deepseek-v4.1-flash-1017`，模型名就是服务端的 `--served-model-name`。需要两个环境变量：
+  - `VLLM_API_KEY`：必填，没有设置时 `create_client` 直接报错。
+  - `FMLBENCH_VLLM_BASE_URL`：默认 `http://localhost:8000/v1`。
+- 连接方式：两边都是默认 VPC，网段都是 `172.31.0.0/16`，所以不能做 VPC Peering 或 Transit Gateway。现在的做法是在运行机器上开一条 SSH 隧道：`ssh -i ~/.ssh/g7-24xl-key-us-east-2.pem -f -N -o ExitOnForwardFailure=yes -o ServerAliveInterval=60 -L 127.0.0.1:8000:localhost:8000 ec2-user@<host>`。沙盒共享网络，所以隧道在沙盒里也能访问。
+- 实现：改动的位置和 Astra 相同。
+  - `agents/llm.py`：新增 `VLLM` provider、`VLLMChatClient`、`vllm_chat_create` / `vllm_response_text` / `is_vllm_client`。
+    - `get_response_from_llm` 遇到这个客户端时，优先走 vLLM 分支，不再按模型名分派。
+    - 多轮对话的历史只保留答案，推理内容不回传。模板的 `drop_thinking` 默认也会丢掉历史里的推理内容。
+    - `get_batch_responses_from_llm` 里按名字匹配 `gpt` 的分支同样会跳过这个客户端。
+  - `agents/code_editor.py`：遇到这个客户端时走 `vllm_chat_create`。
+  - `extract_usage_info` 不用改，走原来的 OpenAI 分支。vLLM 的 `completion_tokens` 包含推理 token。
+- 请求参数：
+  - `max_tokens=64000`，和 Claude、Astra 相同。
+  - `extra_body={"chat_template_kwargs": {"thinking": true, "reasoning_effort": "high"}}`。模板里 `high` 对应 75，`low` 对应 50，`max` 对应 100，也可以直接传 1～100 的整数。用 `FMLBENCH_VLLM_EFFORT` 调整，纯数字会按整数传。`FMLBENCH_VLLM_THINKING=false` 关闭思考，这时不传 effort。
+  - 不传 temperature。
+  - OpenAI SDK 设 `timeout=3600`、`max_retries=8`。
+  - 每次调用都新建 OpenAI 客户端，原因同上面的"空闲连接问题"。
+  - 输出被截断（`finish_reason == "length"`）时打印警告。
+- 推理内容由服务端的 reasoning parser 放进 `reasoning_content`，`content` 里只有答案，所以 JSON 提取和 code_editor 的解析不受影响。
+- 沙盒会透传 `VLLM_API_KEY`、`FMLBENCH_VLLM_BASE_URL`、`FMLBENCH_VLLM_THINKING`、`FMLBENCH_VLLM_EFFORT`。跑 Lite 队列时：`AGENT=ai_scientist_v2 MODEL=deepseek-v4.1-flash-1017 PROVIDER=VLLM LABEL=dsv41flash OUTPUT_DIR=benchmark_results/dsv41flash scripts/reproduction/run_lite_queue.sh <LOG_DIR>`。
+- 验证（2026-11-22，只测了 LLM 调用，没有跑训练，当时 GPU 被别的任务占用）：
+  - 在宿主机上测试了单轮（JSON 提取正确）、多轮（历史回放正确）、`get_batch_responses_from_llm`（n=2）和 code_editor 的编辑，都正常，token 也记录正确。单次调用 0.4～0.9 秒。
+  - 直接调 API 对比：`thinking=false` 时 `reasoning_content` 为空；开启后推理内容单独返回，`content` 只有答案；`reasoning_effort=500` 时服务端返回 400，可见这个参数确实生效了。
+  - 在沙盒里（`--shell -c`，隐藏 GPU）用 `FMLBENCH_VLLM_EFFORT=40` 调用了一次，key 和 effort 都透传进去了，调用正常。
+  - 还没有用 agent 跑冒烟测试。测试的完整步骤见 6.12。
+
 ### 4.2 运行入口适配 uv 环境
 
 - `benchmark/utils.py::env_command(env_name, args)`：如果 `~/fml_envs/<conda_env>/bin/python` 存在，就设置 `VIRTUAL_ENV`，把该环境放到 PATH 最前面后直接执行；否则退回 `conda run`。
@@ -699,6 +728,92 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 | 打分时 scikit-learn 导入失败 | pyarrow 26 要求 NumPy ≥ 2，而 numpy 固定在 1.26.4。装 `pyarrow<26`（6.9） |
 | 用 `pgrep -f` / `pkill -f <关键字>` 时匹配到（或杀掉了）执行命令的 shell | 关键字出现在这条命令自己的命令行里。改用 `pgrep -x python` 再查看 `/proc/<pid>/cmdline`，或者直接用 PID 去 `kill` |
 
+### 6.12 用自部署的 DeepSeek-V4.1-Flash 测试（`deepseek-v4.1-flash-1017`）
+
+模型跑在 us-east-2 的 vLLM 服务上（4.1 的"自部署的 vLLM 模型"）。provider 是 `VLLM`，其余步骤和 6.7～6.10 相同。下面的命令都在**运行 FML-bench 的机器上**执行，这台机器上要有私钥 `~/.ssh/g7-24xl-key-us-east-2.pem`（权限 400）。
+
+**1. 确认服务在运行，拿到服务器地址**
+
+```bash
+# 公网 IP 在实例停止再启动后会变，以查到的为准（2026-11-22 是 18.119.139.191）
+H=$(aws ec2 describe-instances --region us-east-2 --instance-ids i-0228e02726602d08b \
+      --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)
+ssh -i ~/.ssh/g7-24xl-key-us-east-2.pem ec2-user@$H 'systemctl is-active vllm-deepseek'   # 应输出 active
+```
+
+服务端的管理命令：`sudo systemctl status|restart|stop vllm-deepseek`。日志在 `~/workspace/dpsk/logs/vllm_prod.log`。
+
+**2. 开 SSH 隧道，设置 API key**
+
+```bash
+ssh -i ~/.ssh/g7-24xl-key-us-east-2.pem -f -N -o ExitOnForwardFailure=yes \
+    -o ServerAliveInterval=60 -o ServerAliveCountMax=3 \
+    -L 127.0.0.1:8000:localhost:8000 ec2-user@$H
+export VLLM_API_KEY=$(ssh -i ~/.ssh/g7-24xl-key-us-east-2.pem ec2-user@$H \
+    'grep ^VLLM_API_KEY= ~/.config/vllm/deepseek.env | cut -d= -f2-')
+```
+
+- 隧道把本机的 `127.0.0.1:8000` 转发到服务器上的 vLLM。沙盒共享网络，所以沙盒里也能访问。如果本机的 8000 端口被占用，换一个端口，比如 `-L 127.0.0.1:18000:localhost:8000`，再设 `FMLBENCH_VLLM_BASE_URL=http://localhost:18000/v1`。
+- 不要把 key 写进仓库或日志。没有设置 `VLLM_API_KEY` 时，`create_client` 会直接报错。
+- 默认开启思考，effort 为 `high`（4.1）。要改的话，在启动前设置 `FMLBENCH_VLLM_EFFORT` 或 `FMLBENCH_VLLM_THINKING`，沙盒会透传这些变量。
+
+**3. 检查连通（只调 LLM，不用 GPU）**
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $VLLM_API_KEY" localhost:8000/v1/models   # 200
+CUDA_VISIBLE_DEVICES= sandbox/run_in_bwrap.sh --shell -c "cd $PWD && python -c '
+from agents.llm import create_client, get_response_from_llm
+c, m = create_client(\"deepseek-v4.1-flash-1017\", \"VLLM\")
+print(get_response_from_llm(\"What is 2**10? Reply with the number only.\", c, m, \"Be precise.\")[0])'"   # 1024
+```
+
+返回 401 说明 key 不对；连接被拒绝说明隧道没开，或者服务没起来。
+
+**4. 冒烟测试（会用 GPU）**
+
+`run_smoke_lite.sh` 把模型写死成了 Opus，所以和 4.1 里 Astra 的冒烟测试一样，直接调用沙盒脚本，每个任务跑 2 步：
+
+```bash
+L=docs/reproduction_logs/smoke_dsv41flash; mkdir -p $L
+for t in "0|generalization" "1|privacy_opacus"; do
+  CUDA_VISIBLE_DEVICES=${t%%|*} sandbox/run_in_bwrap.sh --output-dir benchmark_results_smoke/dsv41flash \
+    --agent-config configs/agents/ai_scientist_v2.yaml --task-config configs/tasks/${t#*|}.yaml \
+    --model deepseek-v4.1-flash-1017 --provider VLLM --workspace-label dsv41flash-smoke \
+    agent.ai_scientist_v2.max_steps=2 > $L/${t#*|}.log 2>&1 &
+done; wait
+grep -H -E 'Using vLLM server|Best Val Metric|Test Metric|Cleaned up workspace copy' $L/*.log
+```
+
+成功的标准和 6.7 相同：每个日志里都有 `Best Val Metric`、`Test Metric` 和 `Cleaned up workspace copy`，并且没有 `LLM call failed`、`APIConnectionError` 或 401 错误。
+
+**5. 正式测试**
+
+排队方式和超时同 6.8。用 `MODEL`、`PROVIDER`、`LABEL`、`OUTPUT_DIR` 选模型，结果和 Opus、Astra 的分开存放：
+
+```bash
+L=docs/reproduction_logs/full_lite8_ai_scientist_v2_dsv41flash
+mkdir -p $L
+setsid nohup python3 scripts/reproduction/resource_monitor.py $L/resources.csv 10 > $L/monitor.out 2>&1 < /dev/null &
+AGENT=ai_scientist_v2 MODEL=deepseek-v4.1-flash-1017 PROVIDER=VLLM LABEL=dsv41flash \
+OUTPUT_DIR=benchmark_results/dsv41flash \
+QUEUE_SLOTS="0|generalization_officehome;0|privacy_privacymeter continual_learning_pycil;1|data_efficiency_usb;1|robustness_openood generalization privacy_opacus;|robustness_and_reliability_art" \
+setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /dev/null &
+```
+
+- `VLLM_API_KEY` 要在启动队列的同一个 shell 里设置。`setsid nohup` 会继承它。
+- **baseline 口径**：要和 5.1、5.5 直接比较的话，启动前按 6.5 把顶层 baseline 临时换成 g7e.12xlarge 版，打分后用 `git checkout ml_tasks` 恢复。
+- **隧道要一直开着**。正式测试要跑两天多，隧道断开后，LLM 调用会在 SDK 重试 8 次后失败，失败的那一步会被记为无效。建议用 `autossh -M 0` 代替 `ssh` 来开隧道，或者定期检查 `curl localhost:8000/v1/models`。服务器上的 vLLM 由 systemd 托管，进程挂掉后会自动重启（`Restart=on-failure`）。
+- 跑完之后的检查同 6.8，另外 `grep -c 'LLM call failed' $L/*.log` 应该接近 0。
+
+**6. 打分和快照检查**
+
+```bash
+~/fml_envs/fmlbench/bin/python compute_agent_metrics.py benchmark_results/dsv41flash/ai_scientist_v2 --lite \
+  --output-dir metric_reports/ai_scientist_v2_dsv41flash_lite
+```
+
+NI 的口径同 6.9，快照检查同 6.10。结果写进第 5 章的新一节，并在 `docs/lite_results_by_method.csv` 里追加两列。
+
 ---
 
 ## 7. 待办 / 未决事项
@@ -727,6 +842,8 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
 - [x] Claude Code（`/goal` 模式）的 Lite 测试与打分（5.4）
 - [ ] officehome 实际只有 2 类（5.4）：每个域下只有 `train/`、`val/` 两个子目录，DomainBed 把它们当成类别，所以模型学的是"文件在不在 `val/` 下"，不是 65 类物体。是否改为按类别目录组织数据（例如合并每个域的 `train/` 和 `val/`），需要决定。这会改变 baseline 和所有已有结果
+- [x] 接入 us-east-2 上自部署的 DeepSeek-V4.1-Flash（provider `VLLM`，4.1），只验证了 LLM 调用，测试方法见 6.12
+- [ ] 用 `deepseek-v4.1-flash-1017` 正式测试（6.12）：先跑冒烟测试，再跑 ai_scientist_v2 × Lite 的正式测试，然后打分、做快照检查，结果写进第 5 章并和 Opus（5.1）、GPT-6 Astra（5.5）对比
 - [ ] g7e.24xlarge 的 `/mnt/nvme`（实例存储 RAID）不在 `/etc/fstab` 里，重启后要手动 `sudo mount /dev/md0 /mnt/nvme`。2026-11-08 这台机器被外部自动更新加重启过一次
 
 ---

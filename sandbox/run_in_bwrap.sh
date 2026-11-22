@@ -19,7 +19,8 @@
 #   - /usr, /etc, /sys    read-only;  fresh /proc, /dev, /tmp, /dev/shm and an empty $HOME
 #   - NVIDIA device nodes; CUDA_VISIBLE_DEVICES is passed through (unset: all GPUs; "" hides them)
 #   - network is shared: Bedrock is reached over HTTPS with the instance-role credentials
-#     from IMDS (a separate network namespace would cut IMDS off)
+#     from IMDS (a separate network namespace would cut IMDS off), and a vLLM server or an
+#     SSH tunnel to it on the host's localhost stays reachable
 # Everything else on the host (other home dirs, ~/.ssh, ~/.aws unless AWS_PROFILE is set,
 # conda environments, the EFS data outside this repo) is not visible; a base-interpreter prefix
 # such as ~/miniconda3 is mounted read-only only when a venv needs it, and conda is not on PATH.
@@ -104,9 +105,11 @@ for p in "${data_ro[@]}"; do args+=(--ro-bind "$p" "$p"); done
 for d in /dev/nvidiactl /dev/nvidia-uvm /dev/nvidia-uvm-tools /dev/nvidia-modeset /dev/nvidia[0-9]*; do
   [[ -e $d ]] && args+=(--dev-bind "$d" "$d")
 done
-# Pass through AWS region/credential settings and the agent knobs if the caller set them.
+# Pass through AWS region/credential settings, the vLLM endpoint and the agent knobs if the
+# caller set them.
 for v in AWS_REGION AWS_DEFAULT_REGION AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN \
-         AWS_PROFILE FMLBENCH_CLAUDE_EFFORT FMLBENCH_BEDROCK_EFFORT; do
+         AWS_PROFILE FMLBENCH_CLAUDE_EFFORT FMLBENCH_BEDROCK_EFFORT \
+         VLLM_API_KEY FMLBENCH_VLLM_BASE_URL FMLBENCH_VLLM_THINKING FMLBENCH_VLLM_EFFORT; do
   [[ -n ${!v:-} ]] && args+=(--setenv "$v" "${!v}")
 done
 [[ -n ${AWS_PROFILE:-} && -d $HOME/.aws ]] && args+=(--ro-bind "$HOME/.aws" "$HOME/.aws")

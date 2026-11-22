@@ -20,6 +20,7 @@ import openai
 from .llm import (
     bedrock_converse_create, bedrock_response_text, claude_messages_create, claude_response_text,
     create_client, extract_usage_info, is_anthropic_client, is_bedrock_converse_client,
+    is_vllm_client, vllm_chat_create, vllm_response_text,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,13 @@ class CodeEditor:
                     [{"role": "user", "content": [{"text": user_prompt}]}],
                 )
                 content = bedrock_response_text(response)
+                token_usage = extract_usage_info(response)
+            elif is_vllm_client(self.client):
+                response = vllm_chat_create(
+                    self.client, self.model_name, system_prompt,
+                    [{"role": "user", "content": user_prompt}],
+                )
+                content = vllm_response_text(response)
                 token_usage = extract_usage_info(response)
             else:
                 # Build API kwargs — use defaults only (many models reject

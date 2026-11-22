@@ -25,6 +25,7 @@ AVAILABLE_PROVIDERS = [
     "OpenAI",
     "AnthropicBedrock",
     "OpenAIBedrock",
+    "VLLM",
 ]
 
 # OpenAI models on Amazon Bedrock (e.g. us.openai.gpt-6-astra) go through the Converse API.
@@ -54,12 +55,64 @@ class BedrockConverseClient:
         return self._session.client("bedrock-runtime", config=self._config)
 
 
+# Self-hosted models behind a vLLM OpenAI-compatible server (e.g. deepseek-v4.1-flash-1017).
+# Same output cap as Claude/Bedrock. Thinking and its depth go through chat_template_kwargs;
+# the DeepSeek-V4.1 template takes reasoning_effort as an int in [1, 100] or a name
+# (low=50, high=75, max=100), default high to match CLAUDE_EFFORT.
+VLLM_BASE_URL = os.environ.get("FMLBENCH_VLLM_BASE_URL", "http://localhost:8000/v1")
+VLLM_MAX_TOKENS = 64000
+VLLM_THINKING = os.environ.get("FMLBENCH_VLLM_THINKING", "true").lower() not in ("0", "false", "no", "off")
+VLLM_EFFORT = os.environ.get("FMLBENCH_VLLM_EFFORT", "high")
+VLLM_EFFORT = int(VLLM_EFFORT) if VLLM_EFFORT.isdigit() else VLLM_EFFORT
+
+
+class VLLMChatClient:
+    """OpenAI SDK pointed at a vLLM server; the key comes from VLLM_API_KEY.
+
+    Every call gets a new OpenAI client, so pooled connections are never reused (same idle
+    connection problem as BedrockConverseClient when the server is reached across regions).
+    """
+
+    def __init__(self, base_url, api_key):
+        self.base_url = base_url
+        self.api_key = api_key
+
+    def new_openai(self):
+        return openai.OpenAI(base_url=self.base_url, api_key=self.api_key, timeout=3600, max_retries=8)
+
+
 def is_anthropic_client(client) -> bool:
     return isinstance(client, ANTHROPIC_CLIENTS)
 
 
 def is_bedrock_converse_client(client) -> bool:
     return isinstance(client, BedrockConverseClient)
+
+
+def is_vllm_client(client) -> bool:
+    return isinstance(client, VLLMChatClient)
+
+
+def vllm_chat_create(client, model, system_message, messages):
+    """One chat.completions call on the vLLM server; messages use the OpenAI format."""
+    template_kwargs = {"thinking": VLLM_THINKING}
+    if VLLM_THINKING:
+        template_kwargs["reasoning_effort"] = VLLM_EFFORT
+    with client.new_openai() as oai:
+        response = oai.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": system_message}, *messages],
+            max_tokens=VLLM_MAX_TOKENS,
+            extra_body={"chat_template_kwargs": template_kwargs},
+        )
+    if response.choices[0].finish_reason == "length":
+        print(f"Warning: vLLM response truncated at max_tokens={VLLM_MAX_TOKENS}")
+    return response
+
+
+def vllm_response_text(response) -> str:
+    # The server's reasoning parser moves the thinking into reasoning_content; keep the answer only.
+    return response.choices[0].message.content or ""
 
 
 def bedrock_converse_create(client, model, system_message, messages):
@@ -217,7 +270,7 @@ def get_batch_responses_from_llm(
     if msg_history is None:
         msg_history = []
 
-    if 'gpt' in model and not is_bedrock_converse_client(client):
+    if 'gpt' in model and not (is_bedrock_converse_client(client) or is_vllm_client(client)):
         new_msg_history = msg_history + [{"role": "user", "content": msg}]
         if 'gpt-5' in model:
             response = client.chat.completions.create(
@@ -326,6 +379,12 @@ def get_response_from_llm(
         response = bedrock_converse_create(client, model, system_message, new_msg_history)
         content = bedrock_response_text(response)
         new_msg_history = new_msg_history + [{"role": "assistant", "content": [{"text": content}]}]
+    elif is_vllm_client(client):
+        # OpenAI-format history; only the answer is kept for replay (reasoning is not passed back).
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = vllm_chat_create(client, model, system_message, new_msg_history)
+        content = vllm_response_text(response)
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
     elif "claude" in model:
         # Fork by client type: OpenRouter/OpenAI-compatible clients (openai.OpenAI)
         # don't have `client.messages.create`, so route them through
@@ -582,9 +641,9 @@ def extract_json_between_markers(llm_output):
 def create_client(model, provider='OpenAI'):
 
     # Check whether the provider is in the valid list
-    provider_list = ['OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'DeepSeek', 'Google']
+    provider_list = ['OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'VLLM', 'DeepSeek', 'Google']
     if provider not in provider_list:
-        raise ValueError(f"Provided {provider} not supported. Supported provides: 'OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'DeepSeek', 'Google'")
+        raise ValueError(f"Provided {provider} not supported. Supported provides: 'OpenRouter', 'Anthropic', 'AnthropicBedrock', 'AnthropicVertex', 'OpenAI', 'OpenAIBedrock', 'VLLM', 'DeepSeek', 'Google'")
 
 
     if provider == 'OpenRouter':
@@ -617,6 +676,13 @@ def create_client(model, provider='OpenAI'):
         region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
         print(f"Using Amazon Bedrock Converse ({region}) with model {model}.")
         return BedrockConverseClient(region), model
+
+    elif provider == 'VLLM':
+        # model is the server's --served-model-name, e.g. deepseek-v4.1-flash-1017
+        if not os.environ.get("VLLM_API_KEY"):
+            raise ValueError("Provider VLLM needs VLLM_API_KEY (the server's --api-key).")
+        print(f"Using vLLM server {VLLM_BASE_URL} with model {model}.")
+        return VLLMChatClient(VLLM_BASE_URL, os.environ["VLLM_API_KEY"]), model
 
     else:
         raise NotImplementedError(f"Provider {provider} not implemented.")
