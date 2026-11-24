@@ -1,10 +1,10 @@
 # FML-bench 复现实验记录
 
-本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5，以及作为对照的 GPT-6 Astra）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章，含用 Claude Code 作为 agent 的对比），以及从零复现这些结果的完整流程（第 6 章）。
+本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5，以及作为对照的 GPT-6 Astra）、自部署的 DeepSeek-V4.1-Flash 和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章，含用 Claude Code 作为 agent 的对比），以及从零复现这些结果的完整流程（第 6 章）。
 
 - 分支：`repro/bedrock-uv-sandbox`，基于上游 `d336651`
-- 记录时间：2026-11-02 ～ 2026-11-22
-- baseline 有两版（第 3 章）：g7e.12xlarge 版是第 5 章 agent 测试用的；g7e.24xlarge 版是仓库当前采用的。第 8 章是 4 × L4 上的对照
+- 记录时间：2026-11-02 ～ 2026-11-24
+- baseline 有两版（第 3 章）：g7e.12xlarge 版是第 5 章多数 agent 测试用的（5.4、5.6 用的是 g7e.24xlarge 版）；g7e.24xlarge 版是仓库当前采用的。第 8 章是 4 × L4 上的对照
 
 ---
 
@@ -561,6 +561,89 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 
 - 和 5.1 的 Opus 相比，GPT-6 Astra 只有 domainbed 依赖题目先验，privacymeter 的结果是正常的防御效果，这一点和 5.3 的 autoresearch 相同。
 
+### 5.6 ai_scientist_v2 × FML-bench-Lite × DeepSeek-V4.1-Flash（进行中）
+
+**设置**
+
+- 机器：g7e.24xlarge，4 张 RTX PRO 6000 Blackwell。agent 参数用默认值，每个任务跑 100 步，全部在沙盒中运行。
+- 模型：us-east-2 上自部署的 vLLM `deepseek-v4.1-flash-1017`（provider `VLLM`，4.1、6.12），通过 SSH 隧道访问。隧道守护脚本是 `/mnt/nvme/cc_logs/vllm_tunnel_watchdog.sh`，每 60 秒检查一次。
+- baseline：**g7e.24xlarge 版**，和 5.4 的 Claude Code 相同。启动前顶层 baseline 没有换成 6.12 建议的 g7e.12xlarge 版，所以提示词里的 baseline 是 g7e.24xlarge 版（例如 openood 的 baseline val 是 0.8708）。两版只在 openood、privacymeter、ART 上有差别（3.3）。因此下表的主列用 g7e.24xlarge 版；和 5.1、5.3、5.5 比较时，看 g7e.12xlarge 版那一列。
+- 超时：8 个任务都用 2400 秒的标准超时（`EXTRA=agent.ai_scientist_v2.execute_timeout=2400`）。5.1 和 5.5 用的是 4800 秒。
+- 排队：每张卡一条队列，ART 在 CPU 上：
+
+```bash
+L=docs/reproduction_logs/full_lite8_ai_scientist_v2_dsv41flash
+AGENT=ai_scientist_v2 MODEL=deepseek-v4.1-flash-1017 PROVIDER=VLLM LABEL=dsv41flash OUTPUT_DIR=benchmark_results/dsv41flash \
+EXTRA=agent.ai_scientist_v2.execute_timeout=2400 \
+QUEUE_SLOTS="0|generalization_officehome;1|data_efficiency_usb privacy_opacus;2|continual_learning_pycil generalization;3|robustness_openood privacy_privacymeter;|robustness_and_reliability_art" \
+setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /dev/null &
+```
+
+- 冒烟测试：2026-11-22 跑了 domainbed 和 opacus（`docs/reproduction_logs/smoke_dsv41flash/`），两个都通过了 6.7 的检查。
+- 正式测试：2026-11-23 04:37 启动。日志在 `docs/reproduction_logs/full_lite8_ai_scientist_v2_dsv41flash/`，结果在 `benchmark_results/dsv41flash/ai_scientist_v2/`。
+- 5.1 记录的已知问题（想法生成没有运行）这里同样存在。
+
+**进度**（2026-11-24 04:25）
+
+| 位置 | 任务 | 状态 |
+|---|---|---|
+| GPU3 | openood → privacymeter | openood 11-23 21:07 完成；privacymeter 49/100 |
+| CPU | ART | 11-24 01:46 完成 |
+| GPU0 | officehome | 74/100 |
+| GPU2 | pycil → domainbed | pycil 88/100 |
+| GPU1 | usb → opacus | usb 63/100 |
+
+- 到目前为止：
+  - 没有出现 LLM 调用失败，隧道也没有重建过。
+  - usb 有 2 步超过 2400 秒，按无效计。
+- 预计 11-25 上午到下午全部结束。最后结束的是 GPU1 这条队列（usb 跑完后还要跑 opacus）。
+- **privacymeter**：49 步里有 36 步无效。
+  - 35 步是 val 上的 TPR 约束或准确率约束不满足，代码本身没有崩溃；
+  - 1 步是张量形状不一致。
+  - 作为对比，5.5 的 GPT-6 Astra 跑满 100 步也是 36 步无效。
+- **pycil**：
+  - 第 4～30 步，每步约 1850～1930 秒。
+  - 从第 31 步起，agent 换了一个更轻的方法，每步回到 baseline 的水平（约 570 秒）。
+
+**已完成任务的结果**（NI 的计算方法同 6.9）
+
+| 任务 | agent 最佳 val（被测步） | agent test | **NI（g7e.24xlarge 版）** | NI（g7e.12xlarge 版） | NI（原始 baseline） | token（M） | 耗时（h） | 失败步数 |
+|---|---|---|---|---|---|---|---|---|
+| openood | 0.9136（88） | 0.9856 | **0.0828** | 0.0644 | 0.0554 | 2.23 | 16.5 | 1 |
+| ART | 0.8898（29） | 0.8979 | **0.6142** | 0.6059 | 0.4205 | 2.68 | 21.1 | 3 |
+
+- 两个任务都正常结束：
+  - 日志里都有 `Best Val Metric`、`Test Metric` 和 `Cleaned up workspace copy`；
+  - 没有超过 2400 秒的步；
+  - 打分表的 `note` 都是 `ok`。
+- 打分：只对这两个任务打了分，命令加 `--tasks Robustness_openood Robustness_and_Reliability_art`，输出在 `metric_reports/ai_scientist_v2_dsv41flash_partial_20261124/`。顶层 baseline 是 g7e.24xlarge 版，所以 CSV 里的 NI 就是主列。另外两列是手工算的。全部任务结束后再按 6.12 统一打分。
+
+**和其他方法比**（openood、ART 两个任务）
+
+| 方法 | openood NI（12xlarge 版 / 24xlarge 版） | openood test | ART NI（12xlarge 版 / 24xlarge 版） | ART test |
+|---|---|---|---|---|
+| ai_scientist_v2 × Opus 5.5（5.1） | 0.0716 / 0.0900 | 0.9928 | 0.6820 / 0.6903 | 0.9740 |
+| autoresearch × Opus 5.5（5.3） | 0.0634 / 0.0818 | 0.9846 | 0.6751 / 0.6835 | 0.9672 |
+| Claude Code × Opus 5.5（5.4） | 0.0781 / 0.0965 | 0.9993 | 0.7048 / 0.7131 | 0.9968 |
+| ai_scientist_v2 × GPT-6 Astra（5.5） | 0.0704 / 0.0888 | 0.9916 | 0.6770 / 0.6853 | 0.9691 |
+| **ai_scientist_v2 × DeepSeek-V4.1-Flash** | **0.0644 / 0.0828** | 0.9856 | **0.6059 / 0.6142** | 0.8979 |
+
+- Claude Code 的 12xlarge 版 NI 是手工换算的。它的提示词和这次一样，用的是 24xlarge 版。
+- **openood**：
+  - 比同样用 ai_scientist_v2 的 Opus（0.0716）和 GPT-6 Astra（0.0704）低约 0.006～0.007，比 autoresearch（0.0634）略高。
+  - 五种方法都在 0.06～0.10 之间，差别不大。
+- **ART**：五种方法里最低，比其余四种低约 0.07～0.10。
+  - 原因从被测代码可以看出（见下表）：DeepSeek 没有剔除毒样本，只靠 mixup、标签平滑和 L2 正则来抵抗投毒。
+  - 因此 test 的 poison_acc 是 0.112，5.3、5.5 的被测步都是 0.013；clean_acc 是 0.915，5.3、5.5 分别是 0.948 和 0.952。
+  - 第 29 步之后的 71 步都没有超过它的 val。
+
+**被测步初步检查**（完整的快照检查在全部任务结束后按 5.2 做）
+
+| 任务 | 被测代码做了什么 | 判断 |
+|---|---|---|
+| ART（第 29 步） | `dp_instahide_trainer.py` 在原有的增强和加噪之外，加了 batch 内 mixup（λ ≥ 0.5）和 0.1 的标签平滑，训练 30 个 epoch；`model.py` 给各层加了 1e-4 的 L2 正则，Adam 学习率改为 5e-4；`split_config.json` 的 `val_ratio` 从 0.20 改为 0.15 | 常规的正则化防御，没有剔除毒样本。`val_ratio` 调小后训练数据多了约 6%，和第 7 章 opacus 那条待办是同一类问题 |
+| openood（第 88 步） | `algorithm.py`：layer2、layer3 和倒数第二层特征上的多尺度 KNN 距离（L2 归一化，加 ReAct 截断），再和类条件 Mahalanobis / 最近类中心、Energy、max-logit 以及特征范数混合打分，用水平翻转做 TTA。特征库是最后一个 epoch 训练数据的循环缓冲 | 常规方法。没有看到读取 val/test 或 OOD 数据的代码 |
+
 ---
 
 ## 6. 复现全流程
@@ -852,7 +935,8 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
 ```
 
 - `VLLM_API_KEY` 要在启动队列的同一个 shell 里设置。`setsid nohup` 会继承它。
-- **baseline 口径**：要和 5.1、5.5 直接比较的话，启动前按 6.5 把顶层 baseline 临时换成 g7e.12xlarge 版，打分后用 `git checkout ml_tasks` 恢复。
+- **baseline 口径**：要和 5.1、5.5 直接比较的话，启动前按 6.5 把顶层 baseline 临时换成 g7e.12xlarge 版，打分后用 `git checkout ml_tasks` 恢复。5.6 那次没有换，用的是 g7e.24xlarge 版。
+- 5.6 实际用的是 4 张卡各一条队列、2400 秒超时，命令见 5.6。
 - **隧道要一直开着**。正式测试要跑两天多，隧道断开后，LLM 调用会在 SDK 重试 8 次后失败，失败的那一步会被记为无效。建议用 `autossh -M 0` 代替 `ssh` 来开隧道，或者定期检查 `curl localhost:8000/v1/models`。服务器上的 vLLM 由 systemd 托管，进程挂掉后会自动重启（`Restart=on-failure`）。
 - 跑完之后的检查同 6.8，另外 `grep -c 'LLM call failed' $L/*.log` 应该接近 0。
 
@@ -895,8 +979,15 @@ NI 的口径同 6.9，快照检查同 6.10。结果写进第 5 章的新一节�
 - [x] Claude Code（`/goal` 模式）的 Lite 测试与打分（5.4）
 - [ ] officehome 实际只有 2 类（5.4）：每个域下只有 `train/`、`val/` 两个子目录，DomainBed 把它们当成类别，所以模型学的是"文件在不在 `val/` 下"，不是 65 类物体。是否改为按类别目录组织数据（例如合并每个域的 `train/` 和 `val/`），需要决定。这会改变 baseline 和所有已有结果
 - [x] 接入 us-east-2 上自部署的 DeepSeek-V4.1-Flash（provider `VLLM`，4.1），只验证了 LLM 调用，测试方法见 6.12
-- [ ] 用 `deepseek-v4.1-flash-1017` 正式测试（6.12）：先跑冒烟测试，再跑 ai_scientist_v2 × Lite 的正式测试，然后打分、做快照检查，结果写进第 5 章并和 Opus（5.1）、GPT-6 Astra（5.5）对比
-- [ ] g7e.24xlarge 的 `/mnt/nvme`（实例存储 RAID）不在 `/etc/fstab` 里，重启后要手动 `sudo mount /dev/md0 /mnt/nvme`。2026-11-08 这台机器被外部自动更新加重启过一次
+- [ ] 用 `deepseek-v4.1-flash-1017` 正式测试（6.12、5.6）：冒烟测试已在 11-22 通过；正式测试 11-23 04:37 启动，openood、ART 已完成。全部结束后要做这些事：
+  - 统一打分（主列用 g7e.24xlarge 版，同时给出 g7e.12xlarge 版和原始 baseline 的结果）；
+  - 做完整的快照检查；
+  - 在 `docs/lite_results_by_method.csv` 里追加两列；
+  - 和 Opus（5.1）、GPT-6 Astra（5.5）对比。
+- [ ] g7e.24xlarge 的 `/mnt/nvme`（实例存储 RAID）不在 `/etc/fstab` 里，重启后要手动 `sudo mount /dev/md0 /mnt/nvme`。
+  - 2026-11-08 和 11-22 这台机器都在周日 02:00 UTC 左右被重启过。
+  - 原因是 AWS SSM Patch Manager：Maintenance Window 发来 `AWS-RunPatchBaseline`，配置是 `RebootOption: RebootIfNeeded`，PatchGroup 是 `DEV`。
+  - 长任务要避开这个时间段，或者请管理员把这台机器改成 `NoReboot`。
 
 ---
 
