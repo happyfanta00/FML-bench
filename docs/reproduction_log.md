@@ -1,9 +1,9 @@
 # FML-bench 复现实验记录
 
-本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章，含用 Claude Code 作为 agent 的对比），以及从零复现这些结果的完整流程（第 6 章）。
+本文档记录 FML-bench 在 uv 环境、Amazon Bedrock（Opus 5.5，以及作为对照的 GPT-6 Astra）和 bubblewrap 沙盒下的复现：环境与数据、baseline 重测、harness 改造、agent 测试结果与快照检查（第 5 章，含用 Claude Code 作为 agent 的对比），以及从零复现这些结果的完整流程（第 6 章）。
 
 - 分支：`repro/bedrock-uv-sandbox`，基于上游 `d336651`
-- 记录时间：2026-11-02 ～ 2026-11-11
+- 记录时间：2026-11-02 ～ 2026-11-22
 - baseline 有两版（第 3 章）：g7e.12xlarge 版是第 5 章 agent 测试用的；g7e.24xlarge 版是仓库当前采用的。第 8 章是 4 × L4 上的对照
 
 ---
@@ -486,7 +486,7 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
 - officehome 第一次启动后手动操作出了问题，于是删掉这次运行，从头重新开始。表中是重新开始的那一次。
 - 在沙盒的 bash 提示符下（不是在 Claude Code 里）按 Ctrl-C 会结束整个沙盒，`launch.log` 里记为 `sandbox ended by signal 2`。
 
-### 5.5 ai_scientist_v2 × FML-bench-Lite × GPT-6 Astra（进行中）
+### 5.5 ai_scientist_v2 × FML-bench-Lite × GPT-6 Astra
 
 **设置**
 
@@ -494,7 +494,7 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
 - 模型换成 Bedrock 的 `us.openai.gpt-6-astra`（provider `OpenAIBedrock`，reasoning effort high，见 4.1）。
 - baseline 用 **g7e.12xlarge 版**，和 5.1、5.3 一样。运行期间，顶层的 baseline 文件临时换成了 `g7e12xlarge/` 下的文件（6.5），打分后用 `git checkout ml_tasks` 恢复。
 - 8 个任务的超时都用 4800 秒，排队方式同 6.8（opacus 排在 GPU1 的 openood → domainbed 之后）。
-- 2026-11-11 02:49 启动。日志在 `docs/reproduction_logs/full_lite8_ai_scientist_v2_gpt6astra/`，结果在 `benchmark_results/gpt6astra/ai_scientist_v2/`，和 5.1 的 Opus 结果分开存放。
+- 运行时间：2026-11-11 02:49 ～ 11-13 20:26，约 65.6 小时。日志在 `docs/reproduction_logs/full_lite8_ai_scientist_v2_gpt6astra/`，结果在 `benchmark_results/gpt6astra/ai_scientist_v2/`，和 5.1 的 Opus 结果分开存放。
 - **第一次运行作废**：
   - 第一次是 11-10 11:54 启动的。因为 4.1 说的空闲连接问题，每步多等约 33 分钟，14.5 小时只跑了 16～25 步。
   - 按决定，在 11-11 02:30 前后中断（SIGTERM，工作区副本已自动清理），修复后全部重跑。
@@ -508,7 +508,58 @@ QUEUE_SLOTS="0|generalization_officehome;0|privacy_privacymeter continual_learni
 setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /dev/null &
 ```
 
-结果待补。
+**结果**（NI 的计算方法同 6.9）
+
+| 任务 | agent 最佳 val（被测步） | agent test | **NI（g7e.12xlarge 版）** | NI（g7e.24xlarge 版） | NI（原始 baseline） | Opus 的 NI（5.1 主列） | token（M） | 耗时（h） | 失败步数 |
+|---|---|---|---|---|---|---|---|---|---|
+| pycil | 0.6779（71） | 0.6749 | **0.0806** | 0.0806 | 0.0797 | 0.1627 | 1.67 | 21.2 | 1 |
+| usb | 0.1210（13） | 0.1184 | **0.0323** | 0.0323 | 0.0394 | 0.0863 | 1.31 | 38.9 | 1 |
+| domainbed（ColoredMNIST） | 0.7405（88） | 0.7500 | **0.4999** | 0.4999 | 0.4631 | 0.5026 | 4.12 | 35.1 | 0 |
+| officehome | 0.9176（13） | 0.8717 | **0.0147** | 0.0147 | 0.0088 | 0.0212 | 4.07 | 29.0 | 0 |
+| openood | 0.9245（83） | 0.9916 | **0.0704** | 0.0888 | 0.0614 | 0.0716 | 1.16 | 25.2 | 0 |
+| opacus | 0.6600（21） | 0.6449 | **0.0578** | 0.0578 | 0.0571 | 0.0882 | 0.99 | 5.4 | 0 |
+| privacymeter | 0.0539（81） | 0.0646 | **0.5071** | 0.5082 | 0.5135 | 0.6347 | 1.89 | 23.9 | 36 |
+| ART | 0.9716（12） | 0.9691 | **0.6770** | 0.6853 | 0.4917 | 0.6820 | 1.64 | 13.1 | 0 |
+| **MEAN（Lite）** | | | **0.2425** | 0.2460 | 0.2144 | 0.2812 | 16.84 | | |
+
+- **和 Opus（5.1）比**：
+  - 平均 NI 是 0.2425 对 0.2812。8 个任务 GPT-6 Astra 都不如 Opus。
+  - 差得多的是 pycil（0.08 对 0.16）、usb（0.03 对 0.09）、opacus（0.06 对 0.09）和 privacymeter（0.51 对 0.63）；domainbed、openood、ART 接近。
+  - 去掉利用题目先验的 domainbed，其余 7 个任务约为 0.21 对 0.25。再去掉 privacymeter，约为 0.16 对 0.19。Opus 在 privacymeter 上利用了评测弱点（5.2），GPT-6 Astra 没有。
+  - 被测步普遍更早：usb、officehome、ART 在第 12～13 步之后就没有再提升，opacus 在第 21 步之后也没有。Opus 对应的是第 64、17、21、88 步。
+- **约束都满足**：
+  - privacymeter 的 test TPR@0.1%FPR 是 0.0017，TPR@0%FPR 是 0.0005，没有超过 test 的容差（0.02 / 0.005，`postprocess.py`）；test 准确率 0.706。
+  - opacus 的 ε 是 7.9986。
+- **失败步**：
+  - privacymeter 的 36 步都是 val 上的 TPR 约束不满足，代码本身没有崩溃。
+  - pycil 的第 63 步是张量形状不一致，usb 的第 44 步是 `AttributeError`。
+  - 没有超过 4800 秒而超时的步。
+- **officehome**：分数同样没有意义（5.3）。val 0.9176 和 test 0.8717 都略低于多数类的占比（0.9203 / 0.8782），说明模型没有总是预测多数类，但标签本身是"文件在不在 `val/` 下"，这点差异只是噪声。
+- **耗时**：
+  - 总共约 65.6 小时。Opus 的 7 个任务排队约 50.3 小时，opacus 单独跑了 12.3 小时（5.1）。
+  - 主要差在 domainbed：35.1 小时，Opus 是 7.7 小时。前 35 步每次 val 约 3 分钟；从第 36 步起，GPT-6 Astra 改出来的代码让不少步的 val 变成 1600～4000 秒，第 81 步之后每步都在 1750 秒左右。运行中查看时，训练进程单核 CPU 约 106%，GPU 利用率约 37%。
+  - opacus 只用了 5.4 小时：GPT-6 Astra 改出来的训练一直很短，每次 val 不超过 170 秒。
+  - 超过 2400 秒的步：domainbed 12 步，都不是创新高的步；usb 1 步，**就是被测的第 13 步**（val 2858 秒，最终 test 前的重训 2799 秒）。按 2400 秒的标准协议，usb 的被测步会超时，和 5.3 的 pycil、openood 一样，比较时要注意。
+- **token**：8 个任务共 16.8M，Opus 是 25.3M。
+- **完整表格**：`metric_reports/ai_scientist_v2_gpt6astra_lite/` 下的三张 CSV。打分时顶层 baseline 是 g7e.12xlarge 版，所以 CSV 里的 NI 就是主列。另外两列是手工算的。打分后已用 `git checkout ml_tasks` 恢复顶层 baseline。
+
+**快照检查**（方法同 5.2）
+
+- **全部快照的静态扫描**：只命中了误报，比如 `.eval()`、`setattr`、变量名里的 `test`、pycil 里只计算自身源码哈希的 `open(__file__)`（不在被测步里）。
+- **被测步逐个阅读**：8 个任务都没有读取 val/test 数据，也没有改动评测代码。
+
+| 任务 | 被测代码做了什么 | 判断 |
+|---|---|---|
+| **domainbed**（第 88 步） | ① 输入是 ColoredMNIST 的形状 `(2, 28, 28)` 时，先对两个颜色通道取平均，再用原来的第一层卷积（权重按通道求和），等于把输入变成灰度图；② 门控的双分支 conv3、空间布局特征和对应的修正分类头；③ 仿射增强、mixup、EMA 教师的一致性损失，预测时用 EMA 权重 | **利用题目先验**，和 5.1、5.3 一样，做法接近 5.1 |
+| privacymeter（第 81 步） | mixup、按拟合程度自适应的标签平滑、按不确定性加权的损失、残差分支 dropout 0.1；全局池化换成平均池化和能量池化的门控混合；把 BatchNorm 的 momentum 从 0.9 改成 0.1。只改了 `default_trainer.py` 和 `wide_resnet.py` | **常规的正则化防御**，没有 5.1 那种按哈希路由的做法。test 的 TPR 不为 0，但在容差内 |
+| ART（第 12 步） | 在下采样到 14×14 的像素特征上做 7 近邻标签一致性检查，7 个邻居里至少 6 个同意另一个标签、最多 1 个支持原标签时剔除样本（只用训练集做参考）；`model.py` 加了输入端的 3×3 中值滤波层（评测时也生效），dropout 略降，Adam 加梯度裁剪 | 常规方法（Deep k-NN 一类的毒样本过滤）。test 的 clean_acc 是 0.952，poison_acc 是 0.013 |
+| pycil（第 71 步） | DER 风格的扩展网络：旧分支冻结（含 BatchNorm），新分支加按旧分类头不确定性门控的残差适配器；旧/新类辅助头、KD、按置信度下降加权的回放；样例内存上的类别平衡分类头微调；NME 加一个用样例内存估计的白化度量；推理时翻转平均 | 常规方法。`test_loader` 只用来打印日志，和原代码一样；样例预算没有改 |
+| usb（第 13 步） | 修正了 WRN 恒等残差的 bug（原来用的是激活后的输入）、Kaiming 初始化；训练从 15000 步加到 40000 步，无标签 batch 从 64 加到 256，阈值 0.95 改为 0.90；强增强换成 torchvision 的 RandAugment 加 Cutout | 常规方法，基本是调参。val 用了 2858 秒，见上文 |
+| openood（第 83 步） | LogitNorm 训练；平均、RMS、最大值三种池化的门控混合；两个各屏蔽 1/4 通道的专家头，按主头的不确定性混合；打分是翻转加 1 像素平移的多视图 log 概率，先沿梯度方向做一步 ODIN 式的输入扰动 | 常规方法。打分函数临时切到 eval 模式，结束后恢复原状态 |
+| officehome（第 13 步） | ERM 加 0.02 的标签平滑和 EMA（0.995），预测时用 EMA 权重 | 常规调参，分数没有意义（见上文） |
+| opacus（第 21 步） | 网络加宽（32/64/64 通道改为 64/128/128）、ReLU 改为 SiLU；lr 0.1→0.6，batch 512→2048，20→30 个 epoch。只改了 `algorithm.py` | 常规调参。DP 部分没有改动，ε 由 harness 按新配置校准 |
+
+- 和 5.1 的 Opus 相比，GPT-6 Astra 只有 domainbed 依赖题目先验，privacymeter 的结果是正常的防御效果，这一点和 5.3 的 autoresearch 相同。
 
 ---
 
@@ -836,7 +887,8 @@ NI 的口径同 6.9，快照检查同 6.10。结果写进第 5 章的新一节�
 - [x] autoresearch 的 Lite 正式测试、打分和快照检查（5.3）。opacus 在第 41 步中断，最终 test 和 `summary.json` 是手工补的
 - [x] 把 g7e.12xlarge 上的工作目录更新到合并提交 `81a483c`。不再跟踪的文件用 `git restore --source=7765d6a --worktree -- docs/reproduction_logs benchmark_results_smoke metric_reports rebaseline_results` 恢复到了磁盘上
 - [ ] autoresearch 的 pycil、openood 被测步超过 2400 秒（5.3）：要不要用 2400 秒的标准超时重跑这两个任务，或者在比较时注明
-- [ ] ai_scientist_v2 × GPT-6 Astra（5.5）结束后：统计超时步数；打分（g7e.12xlarge 版为主，同时给出 g7e.24xlarge 版和原始 baseline 的结果）；检查最佳步的代码快照；和 Opus（5.1）对比；最后用 `git checkout ml_tasks` 恢复顶层 baseline
+- [x] ai_scientist_v2 × GPT-6 Astra 的 Lite 正式测试、打分和快照检查（5.5），已用 `git checkout ml_tasks` 恢复顶层 baseline
+- [ ] ai_scientist_v2 × GPT-6 Astra 的 usb 被测步超过 2400 秒（5.5）：和 autoresearch 的 pycil、openood 一样，要不要按 2400 秒重跑，或者在比较时注明
 - [ ] 在缓存为空的机器上验证 `setup.py --data-cache` 的自动下载（目前只有 MNIST 实际走过这条路径）
 - [ ] 清理 `workspace/*__rebaseline_*` 副本（目前按要求保留）和 g7e.24xlarge 上的 `/mnt/nvme/data/_downloads/`（2.1 GB）
 - [ ] 超时协议：默认 2400 秒在 L4 上不够用（officehome 连 baseline 都跑不完）。跨硬件比较时，是按 GPU 速度换算超时，还是统一要求某个最低算力，需要决定
@@ -985,7 +1037,7 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | `scripts/reproduction/run_smoke_lite.sh` | Lite 任务的冒烟测试（6.7）。默认是 7 个任务 / 2 张卡，可用 `SMOKE_TASKS` / `EXTRA_OVERRIDES` 自定义 |
 | `scripts/reproduction/run_lite_queue.sh` | Lite 任务的正式测试，按位置排队；`AGENT`、`QUEUE_SLOTS` 可换 agent 和排队方式（6.8） |
 | `compute_agent_metrics.py` | 打分，输出原始指标、NI 和过程指标三张表（6.9） |
-| `docs/lite_results_by_method.csv` | ai_scientist_v2、autoresearch、Claude Code 三种方法的 Lite 结果汇总。每行一个任务，每个方法两列：NI 和 baseline test→agent test。前两个方法按 g7e.12xlarge 版 baseline，Claude Code 按 g7e.24xlarge 版（5.1、5.3、5.4） |
+| `docs/lite_results_by_method.csv` | ai_scientist_v2、autoresearch、Claude Code 三种方法的 Lite 结果汇总，最后两列是 ai_scientist_v2 × GPT-6 Astra。每行一个任务，每个方法两列：NI 和 baseline test→agent test。Claude Code 按 g7e.24xlarge 版 baseline，其余按 g7e.12xlarge 版（5.1、5.3、5.4、5.5） |
 | `docs/claude_code_agent_design.md`、`scripts/claude_code/` | Claude Code 作为 agent 的方案、沙盒、`fml-val` 等工具、最终 test、审计和汇总（5.4） |
 
 以下运行产物不在版本库里：
@@ -998,9 +1050,9 @@ EXTRA_OVERRIDES="agent.ai_scientist_v2.execute_timeout=7200" \
 | g7e.12xlarge | `rebaseline_results/<TASK>[__rerun2]/` | g7e.12xlarge 版 baseline 的原始输出和重跑对照 |
 | g7e.12xlarge | `benchmark_results/<agent>/<Task>/` | 正式测试结果：主运行目录（`summary.json`、`step_snapshots/`）和 `*_final_test` 目录 |
 | g7e.12xlarge | `benchmark_results/gpt6astra/ai_scientist_v2/<Task>/` | 5.5 的结果（GPT-6 Astra），目录结构同上 |
-| g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/`、`metric_reports/autoresearch_opus55_lite/` | 5.1、5.3 的三张表（CSV）和嵌入缓存 |
+| g7e.12xlarge | `metric_reports/ai_scientist_v2_opus55_lite/`、`metric_reports/autoresearch_opus55_lite/`、`metric_reports/ai_scientist_v2_gpt6astra_lite/` | 5.1、5.3、5.5 的三张表（CSV）和嵌入缓存 |
 | g7e.12xlarge | `benchmark_results_smoke/` | 冒烟测试结果 |
 | g7e.24xlarge | `/mnt/nvme/cc_runs/<TASK>/formal/` | 5.4 的运行目录：`task/`（工作区、`runs/` 运行记录、`scratch/` 笔记和 `FINAL_REPORT.md`）、`claude_config/`（会话记录）、`final/`（最终 test 和 `report.json` 审计结果） |
 | g7e.24xlarge | `/mnt/nvme/data_agent/<TASK>/` | 5.4 的掩码数据 |
 | g7e.24xlarge | `benchmark_results/claude_code/<Task>/formal/`、`metric_reports/claude_code_opus55_lite/` | 5.4 的 harness 格式结果和打分表（`table_ni_baseline_versions.csv` 是三版 baseline 的 NI 对照） |
-| g7e.12xlarge | `docs/reproduction_logs/` | agent 运行日志和资源采样：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`，冒烟测试在 `smoke_lite7/`；L4 的结果和日志复制在 `l4/` 下 |
+| g7e.12xlarge | `docs/reproduction_logs/` | agent 运行日志和资源采样：5.1 的 opacus 在 `aisv2_opacus_full.log`，其余 7 个任务在 `full_lite7/`，5.3 在 `full_lite8_autoresearch/`，5.5 在 `full_lite8_ai_scientist_v2_gpt6astra/`（作废的第一次运行在 `full_lite8_ai_scientist_v2_gpt6astra_aborted_20261111/`），冒烟测试在 `smoke_lite7/`；L4 的结果和日志复制在 `l4/` 下 |
