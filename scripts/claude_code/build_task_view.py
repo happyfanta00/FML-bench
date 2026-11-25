@@ -180,7 +180,7 @@ def art_mnist_test(src, dst):
 def _domainbed_splits(task: str) -> tuple[dict, list[str]]:
     """Run the task's DomainBed train.py up to the data loaders and record the env splits."""
     cfg = common.load_config(task)
-    tmp = Path(tempfile.mkdtemp(prefix=f"view_{task}_", dir="/mnt/nvme"))
+    tmp = Path(tempfile.mkdtemp(prefix=f"view_{task}_", dir=common.VIEW_ROOT))   # was /mnt/nvme (hard-coded)
     try:
         common.copy_template(task, tmp / task)
         repo = tmp / task / common.repo_subdir(task)

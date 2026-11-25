@@ -43,13 +43,17 @@ def main():
     ap.add_argument("task")
     ap.add_argument("--gpu", type=int)
     ap.add_argument("--cpus", required=True)
+    ap.add_argument("--baseline-dir", help="compare against this dir's val_info.json/test_info.json instead of "
+                    "ml_tasks/<TASK>/baseline_results (e.g. a baseline re-measured on other hardware)")
+    ap.add_argument("--val-times", help="record the val time in this JSON file instead of "
+                    "scripts/claude_code/val_times.json (which holds the g7e.24xlarge timings)")
     a = ap.parse_args()
     task, cfg = a.task, common.load_config(a.task)
     work = common.RUNS_ROOT / "_verify" / task / time.strftime("%Y%m%d_%H%M%S")
     work.mkdir(parents=True)
     res = exec_host.run_exec(task, exec_host.baseline_snapshot(task), view="agent", gpu=a.gpu,
                              cpus=common.CPU_SLOTS[a.cpus], work=work)
-    base_dir = common.REPO / "ml_tasks" / task / "baseline_results"
+    base_dir = Path(a.baseline_dir).resolve() if a.baseline_dir else common.REPO / "ml_tasks" / task / "baseline_results"
     out = Path(res["out"])
     metric = cfg["metric"]
     bval = common.primary_metric(json.loads((base_dir / "val_info.json").read_text()), metric)
@@ -67,7 +71,7 @@ def main():
         val_ok = False
     phases = {p["name"]: p for p in res["phases"]}
     report = {
-        "task": task, "cpus": a.cpus, "gpu": a.gpu, "work": str(work),
+        "task": task, "cpus": a.cpus, "gpu": a.gpu, "work": str(work), "baseline_dir": str(base_dir),
         "val_identical_bytes": identical, "val_ok": val_ok,
         "val": val, "baseline_val": bval, "test_masked": test, "baseline_test": btest,
         "expected_masked_test": EXPECT[task],
@@ -77,7 +81,7 @@ def main():
     }
     (work / "verify.json").write_text(json.dumps(report, indent=1))
     if val_ok and report["val_seconds"]:
-        times = Path(__file__).resolve().parent / "val_times.json"
+        times = Path(a.val_times).resolve() if a.val_times else Path(__file__).resolve().parent / "val_times.json"
         with open(times.with_suffix(".lock"), "w") as lk:
             fcntl.flock(lk, fcntl.LOCK_EX)
             d = json.loads(times.read_text()) if times.exists() else {}

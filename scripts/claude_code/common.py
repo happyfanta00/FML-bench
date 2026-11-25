@@ -20,6 +20,8 @@ UV_ENVS = Path(os.environ.get("FMLBENCH_UV_ENVS", HOME / "fml_envs"))
 UV_PYTHON = Path(os.environ.get("UV_PYTHON_INSTALL_DIR", HOME / ".local/share/uv/python"))
 TOOLS_DIR = Path(__file__).resolve().parent / "sandbox_tools"
 CLAUDE_BIN = (HOME / ".local/bin/claude").resolve()
+# Codex CLI release dir (static `codex` plus its helper binaries codex-exec-server, codex-code-mode-host).
+CODEX_BIN_DIR = Path(os.environ.get("FMLBENCH_CODEX_BIN_DIR", (HOME / ".local/bin/codex").resolve().parent))
 
 LITE_TASKS = [
     "Privacy_opacus", "Continual_Learning_pycil", "Data_Efficiency_usb",
@@ -65,6 +67,8 @@ CPU_SLOTS = {
     "G2": "16-23,64-71",
     "G3": "24-31,72-79",
     "ART": "24-47,72-95",
+    # Single-GPU L4 machine (8 vCPUs, 1 × L4): the whole machine (Codex trial, docs/codex_agent_design.md).
+    "L0": "0-7",
 }
 
 MODEL = "us.anthropic.claude-opus-5-5"
@@ -141,12 +145,15 @@ def gpu_devices(gpu: int | None) -> list[str]:
 
 def bwrap_args(*, task: str, task_dir: Path, view: str, gpu: int | None, cache_dir: Path,
                claude_config: Path | None, extra_env: dict | None = None,
-               ml_tasks_paths: list[str] | None = None, md5_aliases: bool = True) -> list[str]:
+               ml_tasks_paths: list[str] | None = None, md5_aliases: bool = True,
+               codex_home: Path | None = None) -> list[str]:
     """bubblewrap arguments for an agent sandbox (view='agent') or a final-test sandbox ('real').
 
     Layout inside: /task (run's task dir: workspace/, scratch/, runs/), /task/baseline/<TASK>
     (read-only task template), /task/ml_tasks/<TASK>/<refs> (read-only), the task's uv env, the
     task's data at its usual path, only the assigned GPU, /opt/fml (tools), /opt/claude (binary).
+    With codex_home (a Codex run): /opt/codex (Codex release dir) instead of /opt/claude, codex_home
+    as ~/.codex (CODEX_HOME) and ~/.aws/config read-only (Bedrock credentials via the instance role).
     """
     cfg = load_config(task)
     env_dir = UV_ENVS / cfg["conda_env"]
@@ -166,8 +173,15 @@ def bwrap_args(*, task: str, task_dir: Path, view: str, gpu: int | None, cache_d
         "--bind", str(task_dir), "/task",
         "--ro-bind", str(template_dir(task)), f"/task/baseline/{task}",
         "--ro-bind", str(TOOLS_DIR), "/opt/fml",
-        "--ro-bind", str(CLAUDE_BIN), "/opt/claude/bin/claude",
     ]
+    if codex_home is None:
+        a += ["--ro-bind", str(CLAUDE_BIN), "/opt/claude/bin/claude"]
+    else:
+        a += ["--ro-bind", str(CODEX_BIN_DIR), "/opt/codex/bin",
+              "--bind", str(codex_home), str(HOME / ".codex"),
+              "--ro-bind-try", str(HOME / ".aws" / "config"), str(HOME / ".aws" / "config")]
+        if (codex_home / "AGENTS.md").exists():   # task brief: read-only global instructions
+            a += ["--ro-bind", str(codex_home / "AGENTS.md"), str(HOME / ".codex" / "AGENTS.md")]
     # Base interpreter of the venv, if it is outside /usr and the uv store (see sandbox/run_in_bwrap.sh).
     home_line = [l for l in (env_dir / "pyvenv.cfg").read_text().splitlines() if l.startswith("home")]
     if home_line:
@@ -191,7 +205,7 @@ def bwrap_args(*, task: str, task_dir: Path, view: str, gpu: int | None, cache_d
     env = {
         "HOME": str(HOME), "USER": os.environ.get("USER", "user"), "LANG": "C.UTF-8",
         "TERM": os.environ.get("TERM", "xterm-256color"), "TMPDIR": "/tmp",
-        "PATH": f"/opt/fml/bin:/opt/claude/bin:{env_dir}/bin:/usr/local/bin:/usr/bin",
+        "PATH": f"/opt/fml/bin:{'/opt/codex/bin' if codex_home else '/opt/claude/bin'}:{env_dir}/bin:/usr/local/bin:/usr/bin",
         "VIRTUAL_ENV": str(env_dir),
         "CUDA_VISIBLE_DEVICES": "0" if gpu is not None else "",
         "FMLBENCH_TASK": task,
@@ -211,6 +225,9 @@ def bwrap_args(*, task: str, task_dir: Path, view: str, gpu: int | None, cache_d
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": EVAL_MODEL,
             "DISABLE_AUTOUPDATER": "1",
         })
+    if codex_home is not None:
+        env.update({"CODEX_HOME": str(HOME / ".codex"),
+                    "AWS_REGION": os.environ.get("CODEX_AWS_REGION", "us-west-2")})
     env.update(extra_env or {})
     a.append("--clearenv")
     for k, v in env.items():

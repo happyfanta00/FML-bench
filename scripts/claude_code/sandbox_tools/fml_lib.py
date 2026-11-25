@@ -85,7 +85,9 @@ def phase(meta, runs, now=None) -> tuple[str, float]:
         return "BUDGET EXHAUSTED", left
     last = max([r.get("duration_s") or 0 for r in runs[-3:]] or [0])
     window = max(min(3600, 0.1 * meta["budget_hours"] * 3600), 2 * last)
-    if left < window or n >= meta["max_runs"] - 5:
+    # Keep 5% of the runs (at least 1) for re-checks and the submission: 95/100 as before, 19/20.
+    reserve = max(1, round(0.05 * meta["max_runs"]))
+    if left < window or n >= meta["max_runs"] - reserve:
         return "WRAP-UP", left
     return "SEARCH", left
 
@@ -165,8 +167,55 @@ def tail(p: Path, n=40) -> str:
 
 # --------------------------------------------------------------------------- commands
 
-def cmd_val() -> int:
+CARD_USAGE = ('usage: fml-val --title "<short name, at most 60 characters>" --idea "<what you changed and why>" '
+              '[--expect "<what you expect>"]')
+
+
+def parse_val_args(argv, meta):
+    """Options of fml-val. Returns (opts, error message or None)."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="fml-val", add_help=True)
+    ap.add_argument("--title")
+    ap.add_argument("--idea")
+    ap.add_argument("--expect")
+    ap.add_argument("--baseline", action="store_true", help=argparse.SUPPRESS)  # host: run the unmodified code
+    try:
+        opts = ap.parse_args(argv or [])
+    except SystemExit:
+        return None, CARD_USAGE
+    if opts.baseline:
+        return opts, None
+    if meta.get("require_card"):
+        if not (opts.title or "").strip() or not (opts.idea or "").strip():
+            return None, ("REFUSED (not counted as a run): --title and --idea are required.\n" + CARD_USAGE)
+        if len(opts.title) > 60:
+            return None, "REFUSED (not counted as a run): --title must be at most 60 characters.\n" + CARD_USAGE
+    return opts, None
+
+
+def baseline_files(meta) -> dict:
+    repo = TASK_ROOT / "baseline" / meta["task"] / meta["repo_subdir"]
+    return {tf: (repo / tf).read_text() for tf in meta["target_files"]}
+
+
+def keep_artifacts(meta, repo: Path, rdir: Path) -> None:
+    """Visualization runs: keep the training curve and the trained model (DomainBed's results_tmp)."""
+    if not meta.get("keep_artifacts"):
+        return
+    for name in ("results.jsonl", "model.pkl"):
+        src = repo / "results_tmp" / name
+        if src.exists():
+            shutil.copy(src, rdir / name)
+
+
+def cmd_val(argv=None) -> int:
     meta = load_meta()
+    opts, err = parse_val_args(argv, meta)
+    if err:
+        print(f"[fml] {err}")
+        return 2
+    if opts.baseline:
+        return run_baseline(meta)
     RUNS.mkdir(exist_ok=True)
     with open(RUNS / ".lock", "w") as lock:
         try:
@@ -186,6 +235,10 @@ def cmd_val() -> int:
         work_repo = TASK_ROOT / "workspace" / meta["task"] / meta["repo_subdir"]
         snap = snapshot_targets(meta, work_repo)
         (rdir / "code.json").write_text(json.dumps(snap["files"], indent=1))
+        if opts.title or opts.idea or opts.expect:
+            (rdir / "card.json").write_text(json.dumps(
+                {"title": opts.title, "idea": opts.idea, "expect": opts.expect,
+                 "time": time.time()}, indent=1, ensure_ascii=False))
         rec = {"run": n, "start": time.time(), "start_iso": time.strftime("%Y-%m-%d %H:%M:%S"),
                "target_sha256": {k: hashlib.sha256(v.encode()).hexdigest()
                                  for k, v in snap["files"].items()},
@@ -204,6 +257,7 @@ def cmd_val() -> int:
                 info_p = repo / "results_tmp" / "val_info.json"
                 if info_p.exists():
                     shutil.copy(info_p, rdir / "val_info.json")
+                keep_artifacts(meta, repo, rdir)
         finally:
             shutil.rmtree(exec_dir, ignore_errors=True)
         info = None
@@ -235,6 +289,65 @@ def cmd_val() -> int:
     return 0 if rec["success"] else 1
 
 
+def run_baseline(meta) -> int:
+    """Run the unmodified code once into runs/baseline/ (host-triggered; not counted, no deadline)."""
+    RUNS.mkdir(exist_ok=True)
+    rdir = RUNS / "baseline"
+    if (rdir / "run.json").exists():
+        print("[fml] the baseline has already been run (runs/baseline/run.json)")
+        return 1
+    with open(RUNS / ".lock", "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        shutil.rmtree(rdir, ignore_errors=True)
+        rdir.mkdir()
+        files = baseline_files(meta)
+        (rdir / "code.json").write_text(json.dumps(files, indent=1))
+        (rdir / "card.json").write_text(json.dumps(
+            {"title": "baseline (unmodified code)", "idea": "The task's baseline code, run once before the agent starts.",
+             "expect": None, "time": time.time()}, indent=1))
+        rec = {"run": 0, "baseline": True, "start": time.time(), "start_iso": time.strftime("%Y-%m-%d %H:%M:%S")}
+        log = rdir / "output.log"
+        exec_dir = TASK_ROOT / "workspace" / f"{meta['task']}__exec_baseline"
+        shutil.rmtree(exec_dir, ignore_errors=True)
+        print(f"[fml] baseline: started {rec['start_iso']}; log: {log}", flush=True)
+        try:
+            repo = make_exec_copy(meta, exec_dir, files)
+            res = run_command(meta["val_command"], repo, log, meta["val_timeout"])
+            info_p = repo / "results_tmp" / "val_info.json"
+            if info_p.exists():
+                shutil.copy(info_p, rdir / "val_info.json")
+            keep_artifacts(meta, repo, rdir)
+        finally:
+            shutil.rmtree(exec_dir, ignore_errors=True)
+        info = json.loads((rdir / "val_info.json").read_text()) if (rdir / "val_info.json").exists() else None
+        rec.update(res)
+        rec["end"] = time.time()
+        rec["success"] = res["returncode"] == 0 and info is not None
+        rec["metric"] = primary_metric(info, meta["metric"]) if rec["success"] else None
+        (rdir / "run.json").write_text(json.dumps(rec, indent=1))
+    print(f"[fml] baseline: {'OK' if rec['success'] else 'FAILED'} in {fmt_dur(rec['duration_s'])}  "
+          f"{meta['metric']} = {rec['metric']}")
+    return 0 if rec["success"] else 1
+
+
+def cmd_note(argv) -> int:
+    """fml-note <run> <text>: record your conclusion about a run (shown with the run's record)."""
+    if len(argv) < 2 or not argv[0].isdigit():
+        print('usage: fml-note <run id> "<your conclusion about this run>"')
+        return 2
+    rdir = RUNS / f"{int(argv[0]):04d}"
+    if not (rdir / "code.json").exists():
+        print(f"[fml] run {argv[0]} does not exist")
+        return 1
+    p = rdir / "note.json"
+    notes = json.loads(p.read_text()) if p.exists() else []
+    notes.append({"text": " ".join(argv[1:]), "time": time.time(),
+                  "time_iso": time.strftime("%Y-%m-%d %H:%M:%S")})
+    p.write_text(json.dumps(notes, indent=1, ensure_ascii=False))
+    print(f"[fml] note saved for run {int(argv[0])}")
+    return 0
+
+
 def cmd_status() -> int:
     meta = load_meta()
     runs = list_runs()
@@ -242,6 +355,11 @@ def cmd_status() -> int:
     sub = RUNS / "submission.json"
     if sub.exists():
         print(f"[fml] submitted: run {json.loads(sub.read_text())['run']}")
+    base = RUNS / "baseline" / "run.json"
+    if base.exists():
+        b = json.loads(base.read_text())
+        m = "" if b.get("metric") is None else f"{b['metric']:.4f}"
+        print(f"[fml] baseline (run 0, not counted): {m}")
     if runs:
         print(f"{'run':>4}  {'start':19}  {'duration':>8}  {'result':10}  {meta['metric']}")
         for r in runs:

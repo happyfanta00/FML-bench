@@ -9,6 +9,20 @@ print(f'FML_CLOSE="{time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(m.get("san
 PY
 )"
 cd "$FML_REPO"
+if [ "$FMLBENCH_AGENT" = codex ]; then
+cat <<MSG
+================================================================================
+ FML-bench task $FMLBENCH_TASK  (deadline $FML_DEADLINE)
+ This sandbox (and Codex in it) is closed automatically at $FML_CLOSE.
+ Working directory: $FML_REPO
+ Start Codex (TUI):            cx-start
+   then type the goal from:    cat /task/goal.txt   (one line starting with /goal)
+ Resume a previous session:    cx-start resume --last
+ Budget status:                fml-status
+================================================================================
+MSG
+return 0 2>/dev/null
+fi
 cat <<MSG
 ================================================================================
  FML-bench task $FMLBENCH_TASK  (deadline $FML_DEADLINE)

@@ -1,0 +1,70 @@
+<!doctype html><meta charset=utf-8><style>
+:root{--bg:#f4f3f0;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--line:#e3e2de;
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--good:#0ca30c;--crit:#d03b3b;--warn:#fab219;--accent:#6250d6;
+--seq1:#cde2fb;--seq3:#6da7ec;--seq5:#256abf;--seq7:#0d366b}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 -apple-system,"Helvetica Neue","Droid Sans Fallback",sans-serif}
+.win{margin:18px;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.12);background:var(--surface);border:1px solid #d8d7d2}
+.chrome{height:34px;background:#ecebe7;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 12px;gap:7px}
+.dot{width:11px;height:11px;border-radius:50%} .url{margin-left:16px;background:#fff;border-radius:6px;padding:3px 12px;color:var(--ink2);font-size:12px;width:360px}
+.top{display:flex;align-items:center;gap:18px;padding:10px 18px;border-bottom:1px solid var(--line)}
+.title{font-weight:650;font-size:15px} .pill{border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink2);font-size:12px;background:#fff}
+.btn{border-radius:8px;padding:7px 14px;font-weight:600;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+.grid{display:grid;grid-template-columns:46% 54%;min-height:700px} .col{padding:14px 16px} .col+.col{border-left:1px solid var(--line)}
+.card{min-width:0;border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:12px}
+.h{font-weight:650;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px} .sub{color:var(--ink2);font-size:12px}
+.muted{color:var(--muted)} .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff} .tile .k{font-size:11px;color:var(--ink2)} .tile .v{font-size:21px;font-weight:650;font-variant-numeric:tabular-nums}
+.node{display:grid;grid-template-columns:18px 42px 1fr 104px;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;font-variant-numeric:tabular-nums}
+.node.sel{background:#eef4fc;outline:1.5px solid var(--s1)} .node .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:8px 0 10px} .tab{padding:6px 12px;color:var(--ink2);border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-color:var(--ink);font-weight:600}
+.kv{display:grid;grid-template-columns:62px 1fr;gap:4px 10px} .kv .k{color:var(--ink2)}
+.samples{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+.s{border-radius:7px;background:#111;padding:3px;text-align:center;color:#fff;font-size:10px;position:relative}
+.s img{width:100%;image-rendering:pixelated;display:block;border-radius:4px}
+.s.ok{box-shadow:0 0 0 2px var(--good)} .s.bad{box-shadow:0 0 0 2px var(--crit)}
+.s .lab{display:flex;justify-content:space-between;padding:2px 2px 0;color:#ddd}
+.chip{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--ink2);background:#fff} .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.bar{display:grid;grid-template-columns:120px 1fr 44px 70px;align-items:center;gap:8px;margin:5px 0;font-variant-numeric:tabular-nums}
+.track{height:10px;background:#f0efec;border-radius:5px;overflow:hidden} .fill{height:100%;background:var(--s1);border-radius:0 4px 4px 0}
+.annin{display:inline-flex;width:19px;height:19px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;vertical-align:middle;margin:0 4px;flex:none}
+.ann{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #fff}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink2)} .sw{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.code{font:11.5px/1.5 "SF Mono",Menlo,monospace;background:#fafaf8;border:1px solid var(--line);border-radius:8px;padding:8px 10px;white-space:pre;overflow:hidden}
+.add{background:#e6f4e6;display:block} .del{background:#fbe9e9;display:block}
+.notes{padding:10px 18px 16px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;font-size:12px;color:var(--ink2)}
+.notes b{color:var(--accent)}
+.env{flex:1} .env .row{display:grid;grid-template-columns:repeat(6,92px);gap:8px}
+.step{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .num{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;flex:none}
+.tag{display:inline-block;font-size:10.5px;padding:0 6px;border-radius:4px;background:#f0efec;color:var(--ink2);white-space:nowrap}
+.tag.hot{background:#e7f0fb;color:#1c5cab}
+.ev{display:grid;grid-template-columns:52px 58px minmax(0,1fr) 58px;gap:6px;padding:4px 0;border-bottom:1px dashed var(--line);font-variant-numeric:tabular-nums}
+</style><body style='width:1440px'><div class=win style='position:relative'><div class=chrome><span class=dot style='background:#ff5f57'></span><span class=dot style='background:#febc2e'></span><span class=dot style='background:#28c840'></span><span class=url>localhost:8765</span></div>
+<div class=top><span class=title>节点详情的另外 3 个标签页（都在左栏下方）</span></div>
+<div style='display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr) minmax(0,1fr);gap:14px;padding:14px 16px'>
+ <div class=card><div class=tabs><span class=annin>1</span><span class=tab>思路</span><span class='tab on'>代码</span><span class=tab>训练</span><span class=tab>过程</span></div>
+  <div style='display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap'><span class=sub>对比：</span><span class='chip on'>baseline</span><span class=chip>上一个节点</span><span class=chip>任选 0002 ▾</span>
+  <span style='flex:1'></span><span class=chip>algorithms.py ▾</span></div>
+  <div class=code><span class=muted>@@ class ERM(Algorithm):  __init__</span>
+<span class=del>-        self.network = nn.Sequential(self.featurizer, self.classifier)</span><span class=add>+        self.color_invariant = tuple(input_shape) == (2, 28, 28) and num_classes == 2</span><span class=add>+        if self.color_invariant:</span><span class=add>+            self.network_ema = copy.deepcopy(self.network).requires_grad_(False)</span><span class=add>+            self.register_buffer("color_reliability", torch.tensor(0.0))</span><span class=muted>@@ def predict(self, x):</span>
+<span class=add>+            orientation = ((score - score.mean()) * (color - color.mean())).mean().sign()</span><span class=add>+            evidence = torch.log1p(reliability) - torch.log1p(-reliability)</span></div>
+  <div class=sub style='margin-top:6px'>只改了 1 个文件：+118 −3　·　[完整文件]　[复制]</div></div>
+ <div class=card><div class=tabs><span class=annin>2</span><span class=tab>思路</span><span class=tab>代码</span><span class='tab on'>训练</span><span class=tab>过程</span></div>
+  <div style='display:flex;justify-content:space-between' class=sub><span>step 3,200 / 5,000　·　预计剩余 1m02s</span><span>GPU 41%</span></div>
+  <div class=track style='height:8px;margin:5px 0 10px'><div class=fill style='width:64%'></div></div>
+  <div class=sub>loss</div><svg width=330 height=110><line x1=34 x2=322 y1=88.0 y2=88.0 stroke='#ecebe7' /><text x=29 y=92.0 font-size=10 fill='#8a8984' text-anchor=end>0</text><line x1=34 x2=322 y1=49.0 y2=49.0 stroke='#ecebe7' /><text x=29 y=53.0 font-size=10 fill='#8a8984' text-anchor=end>0.4</text><line x1=34 x2=322 y1=10.0 y2=10.0 stroke='#ecebe7' /><text x=29 y=14.0 font-size=10 fill='#8a8984' text-anchor=end>0.8</text><polyline points='34.0,19.8 39.8,27.7 45.5,34.3 51.3,39.9 57.0,44.8 62.8,49.1 68.6,52.8 74.3,55.8 80.1,58.1 85.8,59.6 91.6,60.6 97.4,61.2 103.1,61.6 108.9,62.1 114.6,62.8 120.4,63.7 126.2,64.6 131.9,65.5 137.7,66.2 143.4,66.5 149.2,66.4 155.0,66.1 160.7,65.6 166.5,65.3 172.2,65.2 178.0,65.4 183.8,65.9 189.5,66.5 195.3,67.1 201.0,67.4 206.8,67.3 212.6,67.0 218.3,66.5' fill=none stroke='#2a78d6' stroke-width=2 /><line x1=218.3 x2=218.3 y1=10 y2=88 stroke='#8a8984' stroke-dasharray='2 3' /><text x=34.0 y=104 font-size=10 fill='#8a8984' text-anchor=middle>0</text><text x=178.0 y=104 font-size=10 fill='#8a8984' text-anchor=middle>2500</text><text x=322.0 y=104 font-size=10 fill='#8a8984' text-anchor=middle>5000</text></svg>
+  <div class=sub style='margin-top:4px'>留出准确率（env2 in 已置空，不显示）</div><svg width=330 height=130><line x1=34 x2=322 y1=108.0 y2=108.0 stroke='#ecebe7' /><text x=29 y=112.0 font-size=10 fill='#8a8984' text-anchor=end>0</text><line x1=34 x2=322 y1=59.0 y2=59.0 stroke='#ecebe7' /><text x=29 y=63.0 font-size=10 fill='#8a8984' text-anchor=end>0.5</text><line x1=34 x2=322 y1=10.0 y2=10.0 stroke='#ecebe7' /><text x=29 y=14.0 font-size=10 fill='#8a8984' text-anchor=end>1.0</text><polyline points='34.0,55.1 39.8,45.4 45.5,38.4 51.3,33.4 57.0,29.8 62.8,27.3 68.6,25.4 74.3,24.1 80.1,23.2 85.8,22.5 91.6,22.0 97.4,21.7 103.1,21.4 108.9,21.2 114.6,21.1 120.4,21.0 126.2,20.9 131.9,20.9 137.7,20.9 143.4,20.8 149.2,20.8 155.0,20.8 160.7,20.8 166.5,20.8 172.2,20.8 178.0,20.8 183.8,20.8 189.5,20.8 195.3,20.8 201.0,20.8 206.8,20.8 212.6,20.8 218.3,20.8' fill=none stroke='#2a78d6' stroke-width=2 /><polyline points='34.0,59.0 39.8,50.7 45.5,44.7 51.3,40.4 57.0,37.3 62.8,35.2 68.6,33.6 74.3,32.5 80.1,31.6 85.8,31.1 91.6,30.6 97.4,30.4 103.1,30.1 108.9,30.0 114.6,29.9 120.4,29.8 126.2,29.7 131.9,29.7 137.7,29.7 143.4,29.7 149.2,29.6 155.0,29.6 160.7,29.6 166.5,29.6 172.2,29.6 178.0,29.6 183.8,29.6 189.5,29.6 195.3,29.6 201.0,29.6 206.8,29.6 212.6,29.6 218.3,29.6' fill=none stroke='#eb6834' stroke-width=2 /><polyline points='34.0,87.9 39.8,78.0 45.5,69.7 51.3,63.1 57.0,58.0 62.8,53.7 68.6,49.6 74.3,45.5 80.1,41.3 85.8,37.6 91.6,34.6 97.4,32.6 103.1,31.4 108.9,30.7 114.6,29.7 120.4,28.4 126.2,26.6 131.9,24.8 137.7,23.4 143.4,22.8 149.2,22.9 155.0,23.2 160.7,23.4 166.5,23.0 172.2,22.0 178.0,20.8 183.8,19.9 189.5,19.7 195.3,20.1 201.0,20.8 206.8,21.3 212.6,21.3 218.3,20.6' fill=none stroke='#1baf7a' stroke-width=2 /><line x1=218.3 x2=218.3 y1=10 y2=108 stroke='#8a8984' stroke-dasharray='2 3' /><text x=34.0 y=124 font-size=10 fill='#8a8984' text-anchor=middle>0</text><text x=178.0 y=124 font-size=10 fill='#8a8984' text-anchor=middle>2500</text><text x=322.0 y=124 font-size=10 fill='#8a8984' text-anchor=middle>5000</text></svg><div class=legend><span><span class=sw style='background:#2a78d6'></span>env0 留出</span><span><span class=sw style='background:#eb6834'></span>env1 留出</span><span><span class=sw style='background:#1baf7a'></span>env2 out（val）</span></div>
+  <div class=code style='margin-top:8px;font-size:10.5px'>step   loss    env0_out  env1_out  env2_out
+3100   0.231   0.8942    0.8011    0.9031
+3200   0.228   0.8955    0.8027    0.9044</div></div>
+ <div class=card><div class=tabs><span class=annin>3</span><span class=tab>思路</span><span class=tab>代码</span><span class=tab>训练</span><span class='tab on'>过程</span></div>
+  <div class=sub style='margin-bottom:6px'>run 0002 开始之后、run 0003 开始之前，agent 做了什么（来自 Codex 会话记录）</div>
+  <div class=ev><span class=muted>11:25:01</span><span><span class=tag>发言</span></span><span>“第 2 次已到 0.73，接近只用形状的上限；试试用 batch 统计量推断颜色方向……”</span><span style='text-align:right' class=sub></span></div><div class=ev><span class=muted>11:25:20</span><span><span class=tag>命令</span></span><span>python -c "…形状检查…"</span><span style='text-align:right' class=sub>0.8s ✓</span></div><div class=ev><span class=muted>11:25:44</span><span><span class=tag>补丁</span></span><span>apply_patch　domainbed/algorithms.py　+96 −2　<span class=muted>[展开]</span></span><span style='text-align:right' class=sub></span></div><div class=ev><span class=muted>11:26:05</span><span><span class=tag>思考</span></span><span><span class=sub>思考摘要：“单样本时协方差为 0，要退回只用形状……”</span></span><span style='text-align:right' class=sub></span></div><div class=ev><span class=muted>11:26:10</span><span><span class=tag>命令</span></span><span>git diff --stat</span><span style='text-align:right' class=sub>0.0s ✓</span></div><div class=ev><span class=muted>11:26:12</span><span><span class='tag hot'>fml-val</span></span><span><b>fml-val --title “Source-calibrated color…”</b> → run 0003</span><span style='text-align:right' class=sub>2m53s ✓</span></div>
+  <div class=sub style='margin-top:8px'>本段 token：输入 0.30M（缓存 97%）· 输出 6.1k（其中推理 3.2k）</div></div>
+</div>
+
+<div class=notes><div><b>①</b> 代码：可以对比 baseline、上一个节点或任意节点，统一 diff，带语法高亮</div>
+<div><b>②</b> 训练：运行中实时更新进度、曲线和日志尾部（每 100 步一行）</div>
+<div><b>③</b> 过程：发言、命令（含耗时和返回码）、补丁、思考摘要（如果开启）和 token，按时间排列</div><div></div></div>
+</div></body>

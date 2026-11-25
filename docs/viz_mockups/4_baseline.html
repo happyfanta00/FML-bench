@@ -1,0 +1,70 @@
+<!doctype html><meta charset=utf-8><style>
+:root{--bg:#f4f3f0;--surface:#fcfcfb;--ink:#0b0b0b;--ink2:#52514e;--muted:#8a8984;--line:#e3e2de;
+--s1:#2a78d6;--s2:#eb6834;--s3:#1baf7a;--good:#0ca30c;--crit:#d03b3b;--warn:#fab219;--accent:#6250d6;
+--seq1:#cde2fb;--seq3:#6da7ec;--seq5:#256abf;--seq7:#0d366b}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font:13px/1.45 -apple-system,"Helvetica Neue","Droid Sans Fallback",sans-serif}
+.win{margin:18px;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.12);background:var(--surface);border:1px solid #d8d7d2}
+.chrome{height:34px;background:#ecebe7;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 12px;gap:7px}
+.dot{width:11px;height:11px;border-radius:50%} .url{margin-left:16px;background:#fff;border-radius:6px;padding:3px 12px;color:var(--ink2);font-size:12px;width:360px}
+.top{display:flex;align-items:center;gap:18px;padding:10px 18px;border-bottom:1px solid var(--line)}
+.title{font-weight:650;font-size:15px} .pill{border:1px solid var(--line);border-radius:999px;padding:2px 10px;color:var(--ink2);font-size:12px;background:#fff}
+.btn{border-radius:8px;padding:7px 14px;font-weight:600;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+.btn.primary{background:var(--s1);border-color:var(--s1);color:#fff}
+.grid{display:grid;grid-template-columns:46% 54%;min-height:700px} .col{padding:14px 16px} .col+.col{border-left:1px solid var(--line)}
+.card{min-width:0;border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:12px}
+.h{font-weight:650;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:8px} .sub{color:var(--ink2);font-size:12px}
+.muted{color:var(--muted)} .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+.tile{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:#fff} .tile .k{font-size:11px;color:var(--ink2)} .tile .v{font-size:21px;font-weight:650;font-variant-numeric:tabular-nums}
+.node{display:grid;grid-template-columns:18px 42px 1fr 104px;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;font-variant-numeric:tabular-nums}
+.node.sel{background:#eef4fc;outline:1.5px solid var(--s1)} .node .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin:8px 0 10px} .tab{padding:6px 12px;color:var(--ink2);border-bottom:2px solid transparent}
+.tab.on{color:var(--ink);border-color:var(--ink);font-weight:600}
+.kv{display:grid;grid-template-columns:62px 1fr;gap:4px 10px} .kv .k{color:var(--ink2)}
+.samples{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+.s{border-radius:7px;background:#111;padding:3px;text-align:center;color:#fff;font-size:10px;position:relative}
+.s img{width:100%;image-rendering:pixelated;display:block;border-radius:4px}
+.s.ok{box-shadow:0 0 0 2px var(--good)} .s.bad{box-shadow:0 0 0 2px var(--crit)}
+.s .lab{display:flex;justify-content:space-between;padding:2px 2px 0;color:#ddd}
+.chip{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:2px 9px;font-size:11.5px;color:var(--ink2);background:#fff} .chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.bar{display:grid;grid-template-columns:120px 1fr 44px 70px;align-items:center;gap:8px;margin:5px 0;font-variant-numeric:tabular-nums}
+.track{height:10px;background:#f0efec;border-radius:5px;overflow:hidden} .fill{height:100%;background:var(--s1);border-radius:0 4px 4px 0}
+.annin{display:inline-flex;width:19px;height:19px;border-radius:50%;background:var(--accent);color:#fff;font-size:11px;font-weight:700;align-items:center;justify-content:center;vertical-align:middle;margin:0 4px;flex:none}
+.ann{position:absolute;width:20px;height:20px;border-radius:50%;background:var(--accent);color:#fff;font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #fff}
+.legend{display:flex;gap:14px;font-size:11.5px;color:var(--ink2)} .sw{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+.code{font:11.5px/1.5 "SF Mono",Menlo,monospace;background:#fafaf8;border:1px solid var(--line);border-radius:8px;padding:8px 10px;white-space:pre;overflow:hidden}
+.add{background:#e6f4e6;display:block} .del{background:#fbe9e9;display:block}
+.notes{padding:10px 18px 16px;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:4px 28px;font-size:12px;color:var(--ink2)}
+.notes b{color:var(--accent)}
+.env{flex:1} .env .row{display:grid;grid-template-columns:repeat(6,92px);gap:8px}
+.step{display:flex;gap:10px;align-items:flex-start;margin:6px 0} .num{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;flex:none}
+.tag{display:inline-block;font-size:10.5px;padding:0 6px;border-radius:4px;background:#f0efec;color:var(--ink2);white-space:nowrap}
+.tag.hot{background:#e7f0fb;color:#1c5cab}
+.ev{display:grid;grid-template-columns:52px 58px minmax(0,1fr) 58px;gap:6px;padding:4px 0;border-bottom:1px dashed var(--line);font-variant-numeric:tabular-nums}
+</style><body style='width:1440px'><div class=win style='position:relative'><div class=chrome><span class=dot style='background:#ff5f57'></span><span class=dot style='background:#febc2e'></span><span class=dot style='background:#28c840'></span><span class=url>localhost:8765</span></div><div class=top><span class=title>ColoredMNIST · Codex goal</span><span class=pill>run trial_viz_01 ▾</span><span class=pill>agent 未启动</span><span class=pill>预算尚未开始计时</span><span style='flex:1'></span><span class=btn>任务介绍</span><span class=btn>复制启动命令</span></div>
+<div class=grid style='min-height:430px'><div class=col>
+ <div class=card style='padding:6px'>
+  <div class='node sel'><span style='color:#8a8984;font-weight:700'>◐</span><span class=muted>0000</span><span class=t>baseline · ERM 原版　<span class=sub>训练中</span></span>
+  <span style='text-align:right'>41%</span></div></div>
+ <div class=card><div class=h><span class=annin>2</span>baseline 训练进度</div>
+  <div class=track style='height:8px;margin:4px 0 8px'><div class=fill style='width:41%'></div></div>
+  <div class=sub>step 2,050 / 5,000 · 预计剩余 1m30s</div><svg width=560 height=120><line x1=34 x2=552 y1=98.0 y2=98.0 stroke='#ecebe7' /><text x=29 y=102.0 font-size=10 fill='#8a8984' text-anchor=end>0</text><line x1=34 x2=552 y1=54.0 y2=54.0 stroke='#ecebe7' /><text x=29 y=58.0 font-size=10 fill='#8a8984' text-anchor=end>0.5</text><line x1=34 x2=552 y1=10.0 y2=10.0 stroke='#ecebe7' /><text x=29 y=14.0 font-size=10 fill='#8a8984' text-anchor=end>1.0</text><polyline points='34.0,50.5 44.4,41.7 54.7,35.5 65.1,31.0 75.4,27.8 85.8,25.5 96.2,23.8 106.5,22.7 116.9,21.8 127.2,21.2 137.6,20.8 148.0,20.5 158.3,20.2 168.7,20.1 179.0,20.0 189.4,19.9 199.8,19.8 210.1,19.8 220.5,19.8 230.8,19.7 241.2,19.7 251.6,19.7 261.9,19.7 272.3,19.7 282.6,19.7 293.0,19.7 303.4,19.7 313.7,19.7 324.1,19.7 334.4,19.7 344.8,19.7 355.2,19.7 365.5,19.7' fill=none stroke='#2a78d6' stroke-width=2 /><polyline points='34.0,54.0 44.4,46.5 54.7,41.2 65.1,37.3 75.4,34.6 85.8,32.6 96.2,31.2 106.5,30.2 116.9,29.4 127.2,28.9 137.6,28.5 148.0,28.3 158.3,28.1 168.7,27.9 179.0,27.8 189.4,27.8 199.8,27.7 210.1,27.7 220.5,27.7 230.8,27.6 241.2,27.6 251.6,27.6 261.9,27.6 272.3,27.6 282.6,27.6 293.0,27.6 303.4,27.6 313.7,27.6 324.1,27.6 334.4,27.6 344.8,27.6 355.2,27.6 365.5,27.6' fill=none stroke='#eb6834' stroke-width=2 /><polyline points='34.0,80.0 44.4,71.0 54.7,63.6 65.1,57.7 75.4,53.1 85.8,49.2 96.2,45.6 106.5,41.8 116.9,38.1 127.2,34.8 137.6,32.1 148.0,30.3 158.3,29.3 168.7,28.6 179.0,27.7 189.4,26.5 199.8,24.9 210.1,23.3 220.5,22.1 230.8,21.5 241.2,21.6 251.6,21.9 261.9,22.0 272.3,21.6 282.6,20.8 293.0,19.7 303.4,18.9 313.7,18.7 324.1,19.0 334.4,19.7 344.8,20.1 355.2,20.1 365.5,19.5' fill=none stroke='#1baf7a' stroke-width=2 /><line x1=365.5 x2=365.5 y1=10 y2=98 stroke='#8a8984' stroke-dasharray='2 3' /><text x=34.0 y=114 font-size=10 fill='#8a8984' text-anchor=middle>0</text><text x=293.0 y=114 font-size=10 fill='#8a8984' text-anchor=middle>2500</text><text x=552.0 y=114 font-size=10 fill='#8a8984' text-anchor=middle>5000</text></svg></div>
+ <div class=card style='border-style:dashed;color:var(--ink2)'>agent 尚未启动：baseline 完成后，这里会显示启动命令。在此之前 <code>launch.sh</code> 会拒绝启动 agent。</div>
+</div><div class=col>
+ <div class=h style='font-size:14px'>当前 SOTA：无</div>
+ <div class=card style='text-align:center;padding:28px'>
+  <div style='font-size:15px;font-weight:600;margin-bottom:6px'>还没有 SOTA 模型</div>
+  <div class=sub style='margin-bottom:16px'>先在和 agent 相同的沙盒里复现 baseline：它会成为第一个 SOTA，同时检查环境是否可用</div>
+  <span class=annin>1</span><span class='btn primary' style='opacity:.45'>▶ 运行 baseline（约 3 分钟）</span>
+  <div style='display:flex;justify-content:center;gap:14px;margin-top:18px;font-size:12.5px'>
+   <span><span style='color:var(--good)'>✓</span> 沙盒</span><span><span style='color:var(--good)'>✓</span> GPU</span><span><span style='color:var(--good)'>✓</span> 掩码数据</span>
+   <span><span style='color:var(--s1)'>◐</span> 训练</span><span class=muted>○ 预测</span><span class=muted>○ 与参考值 0.2626 比较</span></div>
+ </div>
+ <div class=card style='background:#f3f9f3;border-color:#bfe3bf'><div class=h><span style='color:var(--good)'>✓</span> 完成后（S2）的样子</div>
+  baseline 0.2626（与参考值逐字节相同）。右侧开始显示 baseline 的预测；顶部出现：<br>
+  <div class=code style='margin-top:6px'>tmux new-window -n codex "… scripts/codex/launch.sh ~/fml_agent_runs/…/trial_viz_01"
+→ cx-start → 粘贴 /task/goal.txt 里的 /goal …                              [复制]</div></div>
+</div></div>
+
+<div class=notes><div><b>①</b> 初始状态（S0）只有这个按钮；点击后按钮变灰，下方逐项显示环境检查结果</div>
+<div><b>②</b> baseline 也是节点 0000：训练进度和曲线的显示方式和 agent 的节点完全相同</div></div>
+</div></body>

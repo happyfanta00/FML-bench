@@ -1,0 +1,9 @@
+#!/bin/bash
+# Start Codex (TUI) for this task (extra arguments are passed through). Then type the goal:
+# the line in /task/goal.txt ("/goal ..."). Resume an earlier session with: cx-start resume --last
+repo=$(/usr/bin/python3 -c 'import json;m=json.load(open("/task/meta.json"));print("/task/workspace/%s/%s" % (m["task"], m["repo_subdir"]))')
+cd "$repo" || exit 1
+# Isolation comes from the bwrap sandbox; Codex's own sandbox would nest inside it.
+# --no-daemon: run in-process; the background app-server needs the packaged install (~/.codex/packages),
+# which is not mounted in the sandbox.
+exec codex --no-daemon --dangerously-bypass-approvals-and-sandbox -C "$repo" "$@"
