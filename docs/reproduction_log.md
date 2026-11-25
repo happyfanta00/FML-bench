@@ -159,12 +159,17 @@ scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline
 - `extract_usage_info` 能正确读取 Claude 响应的 `input_tokens` / `output_tokens`（含缓存部分）。
 - SDK 版本为 0.84.0，走 bedrock-runtime（`anthropic.AnthropicBedrock`）。Bedrock Mantle 端点在本账号下对这个模型返回 404。
 
-**Bedrock 上的 OpenAI 模型（GPT-6 Astra，5.5）**
+**Bedrock 上的 OpenAI 模型（GPT-6 Astra，5.5；GPT-6.2 Astra / Sol）**
 
 - 用法：`--provider OpenAIBedrock --model us.openai.gpt-6-astra`。区域和凭证的取法同上，不需要 API key。
+- GPT-6.2 Astra / Sol 不需要改代码，把 `--model` 换成 `us.openai.gpt-6.2-astra` 或 `us.openai.gpt-6.2-sol` 就行；跑 Lite 队列时设 `MODEL=us.openai.gpt-6.2-astra PROVIDER=OpenAIBedrock`，`LABEL`、`OUTPUT_DIR` 按模型另取，例如 `gpt62astra`、`benchmark_results/gpt62astra`。
 - 2026-11-10 在 us-west-2 和 us-east-1 能查到的 OpenAI 模型：
   - GPT-6.1 Sol/Terra、GPT-6 Sol/Luna/Astra、GPT-5.6 Sol/Terra/Luna、GPT 5.5、GPT 5.4：只能通过 `us.` / `global.` 推理配置文件调用。
   - gpt-oss-120b/20b、gpt-oss-safeguard-120b/20b：可以直接按需调用。
+- 2026-11-25 复查：
+  - 新增了 GPT-6.2 Astra 和 GPT-6.2 Sol，同样只能通过 `us.` / `global.` 推理配置文件调用。
+  - us-west-2、us-east-1、us-east-2 三个区域能查到的模型相同，共 16 个。
+  - 在 us-west-2 查了本账号的权限，16 个都是 `AUTHORIZED`；每个模型都发了一条很短的 Converse 请求，都正常返回。
 - 实现：通过 boto3 调用 Bedrock 的 Converse API，改动的位置和 Claude 分支相同。
   - `agents/llm.py`：新增 `OpenAIBedrock` provider、`BedrockConverseClient`、`bedrock_converse_create` / `bedrock_response_text` / `is_bedrock_converse_client`。
     - `get_response_from_llm` 遇到这个客户端时，优先走 Converse 分支，不再按模型名分派。
@@ -173,8 +178,8 @@ scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline
   - `agents/code_editor.py`：遇到这个客户端时走 Converse。
   - `extract_usage_info`：读取 Converse 的 `usage`，`outputTokens` 里包含推理 token。
 - 请求参数：
-  - `maxTokens=64000`，和 Claude 相同（模型上限是 131072）。
-  - `additionalModelRequestFields={"reasoning": {"effort": "high"}}`，和 Claude 的 effort 对应，可以用 `FMLBENCH_BEDROCK_EFFORT` 调整。可选值有 none、low、medium、high、xhigh、max，传错值时 Bedrock 会报错，可见这个参数确实生效了。
+  - `maxTokens=64000`，和 Claude 相同。模型上限：GPT-6 Astra 是 131072，GPT-6.2 Astra / Sol 是 128000，超过时 Bedrock 报 `ValidationException`。
+  - `additionalModelRequestFields={"reasoning": {"effort": "high"}}`，和 Claude 的 effort 对应，可以用 `FMLBENCH_BEDROCK_EFFORT` 调整。可选值是 low、medium、high、xhigh、max。2026-11-25 实测 `none` 会被拒绝（`Unsupported value`），GPT-6 Astra 和 GPT-6.2 Astra / Sol 都是这样。传错值时 Bedrock 会报错，可见这个参数确实生效了。
   - 不传 temperature。
   - boto3 设 `read_timeout=3600`，自适应重试 8 次。
   - **每次调用都新建 botocore 客户端，不复用连接池里的连接**（原因见下面的"空闲连接问题"）。
@@ -191,6 +196,7 @@ scripts/reproduction/rebaseline_queue.sh docs/reproduction_logs/g7e24/rebaseline
 - 验证：
   - 在沙盒里测试了单轮、多轮和 code_editor 的编辑，都正常，token 也记录正确。
   - 用 ai_scientist_v2 在 opacus 和 domainbed 上各跑了 2 步的冒烟测试，都完成了 val 和最终 test（domainbed test 0.748，opacus 0.601）。日志在 `docs/reproduction_logs/smoke_gpt6astra/`，结果在 `benchmark_results_smoke/gpt6astra/`。
+  - GPT-6.2 Astra / Sol（2026-11-25）：先在宿主机上用 harness 自己的 `create_client` 和 `get_response_from_llm` 做了两轮对话，都正常；再用 ai_scientist_v2 在 domainbed 和 opacus 上各跑了 2 步的冒烟测试。4 个运行都完成了 val 和最终 test，4 步 code_editor 编辑全部成功，没有 LLM 调用失败。test 结果：GPT-6.2 Astra 的 domainbed 是 0.663、opacus 是 0.604；GPT-6.2 Sol 的 domainbed 是 0.750、opacus 是 0.578。日志在 `docs/reproduction_logs/smoke_gpt62astra/`、`smoke_gpt62sol/`，结果在 `benchmark_results_smoke/gpt62astra/`、`gpt62sol/`。
 
 **自部署的 vLLM 模型（DeepSeek-V4.1-Flash，us-east-2）**
 

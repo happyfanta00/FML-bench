@@ -28,9 +28,10 @@ AVAILABLE_PROVIDERS = [
     "VLLM",
 ]
 
-# OpenAI models on Amazon Bedrock (e.g. us.openai.gpt-6-astra) go through the Converse API.
-# Same output cap as Claude; reasoning depth is set via reasoning.effort
-# (none/low/medium/high/xhigh/max), default high to match CLAUDE_EFFORT.
+# OpenAI models on Amazon Bedrock (e.g. us.openai.gpt-6-astra, us.openai.gpt-6.2-sol) go
+# through the Converse API. Same output cap as Claude (model limits: 131072 for GPT-6,
+# 128000 for GPT-6.2); reasoning depth is set via reasoning.effort (low/medium/high/xhigh/max;
+# "none" is rejected), default high to match CLAUDE_EFFORT.
 BEDROCK_MAX_TOKENS = 64000
 BEDROCK_EFFORT = os.environ.get("FMLBENCH_BEDROCK_EFFORT", "high")
 
