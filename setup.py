@@ -82,8 +82,18 @@ def conda_env_exists(name: str) -> bool:
 
 
 def conda_run(env: str, script: str, cwd=None) -> None:
-    """Run a Python snippet inside a conda env."""
+    """Run a Python snippet inside a conda env (or the uv env of that name, if it exists)."""
+    if uv_env_exists(env):
+        return uv_run(env, script, cwd=cwd)
     run(["conda", "run", "--no-capture-output", "-n", env, "python", "-c", script], cwd=cwd)
+
+
+def env_shell(env: str, cmd: str, cwd=None) -> None:
+    """Run a shell command with `env` activated: the uv env if it exists, else conda."""
+    if uv_env_exists(env):
+        return run(["bash", "-c", cmd], cwd=cwd, env=uv_env_vars(env))
+    run(["bash", "-lc", f"source $(conda info --base)/etc/profile.d/conda.sh && conda activate {env} && {cmd}"],
+        cwd=cwd)
 
 
 def conda_create(name: str, python_version: str, pip_steps: list) -> None:
@@ -341,16 +351,16 @@ def setup_data_efficiency_easyfsl(args):
         run(["unzip", "miniimagenet.zip", "-d", "images"], cwd=d)
         (d / "miniimagenet.zip").unlink(missing_ok=True)
     model = repo / "data" / "models" / "feat_resnet12_mini_imagenet.pth"
-    embeds = repo / "data" / "mini_imagenet" / "feat_resnet12"
+    # The file eval.py reads (predict_embeddings' default output path for the test split).
+    embeds = repo / "data" / "features" / "mini_imagenet" / "test" / "feat_resnet12_mini_imagenet.parquet.gzip"
     if not model.exists() or not embeds.exists():
         info("downloading ResNet12 model and embeddings for easyfsl")
         (repo / "data" / "models").mkdir(parents=True, exist_ok=True)
-        run(["bash", "-lc",
-             "source $(conda info --base)/etc/profile.d/conda.sh && conda activate easyfsl && "
-             f"gdown --id 1ixqw1l9XVxl3lh1m5VXkctw6JssahGbQ -O {shlex.quote(str(model))} && "
+        env_shell("easyfsl",
+             f"gdown 1ixqw1l9XVxl3lh1m5VXkctw6JssahGbQ -O {shlex.quote(str(model))} && "
              "python -m scripts.predict_embeddings feat_resnet12 "
              "data/models/feat_resnet12_mini_imagenet.pth mini_imagenet "
-             "--device=cuda --num-workers=12 --batch-size=1024"], cwd=repo)
+             "--device=cuda --num-workers=12 --batch-size=1024", cwd=repo)
 
 
 def setup_representation_learning_lightly(args):
@@ -640,9 +650,7 @@ def setup_federated_learning_pfllib(args):
         return
     if not (repo / "dataset" / "Cifar10").exists():
         info("generating CIFAR-10 federated dataset for PFLlib")
-        run(["bash", "-lc",
-             "source $(conda info --base)/etc/profile.d/conda.sh && conda activate pfllib && "
-             "python generate_Cifar10.py noniid - dir"], cwd=repo / "dataset")
+        env_shell("pfllib", "python generate_Cifar10.py noniid - dir", cwd=repo / "dataset")
     git_commit_data(repo, ["dataset/"], "add cifar10 federated dataset")
 
 
@@ -686,12 +694,13 @@ CONDA_ENVS = {
         "uv pip install weco==0.3.0",
         'uv pip install "setuptools<81"',
     ]),
-    "easyfsl": lambda: conda_create("easyfsl", "3.10", [
-        'pip install "matplotlib>=3.0.0" "pandas>=1.5.0" "torch==2.9.1" "torchvision==0.24.1" '
+    # conda -> uv, pins unchanged.
+    "easyfsl": lambda: uv_create("easyfsl", "3.10", [
+        'uv pip install "matplotlib>=3.0.0" "pandas>=1.5.0" "torch==2.9.1" "torchvision==0.24.1" '
         '"tqdm>=4.1.0" tensorboard',
-        "pip install gdown typer loguru pyarrow fastparquet",
-        "pip install weco==0.3.0",
-        'pip install "setuptools<81"',
+        "uv pip install gdown typer loguru pyarrow fastparquet",
+        "uv pip install weco==0.3.0",
+        'uv pip install "setuptools<81"',
     ]),
     "lightly": lambda: conda_create("lightly", "3.10", [
         "conda install pytorch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 cudatoolkit=11.3 "
@@ -703,23 +712,25 @@ CONDA_ENVS = {
         "pip install weco==0.3.0",
         'pip install "setuptools<81"',
     ]),
-    "continual_learning": lambda: conda_create("continual_learning", "3.10.4", [
-        "pip install torch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 "
+    # uv-managed Python has no 3.10.4 build -> 3.10. torch 1.12.1+cu113 kept (sm_86 kernels run on L4 sm_89; no Blackwell).
+    "continual_learning": lambda: uv_create("continual_learning", "3.10", [
+        "uv pip install torch==1.12.1 torchvision==0.13.1 torchaudio==0.12.1 "
         "--index-url https://download.pytorch.org/whl/cu113",
-        'pip install matplotlib "numpy<2" scipy pandas tqdm scikit-learn',
-        "pip install weco==0.3.0",
-        'pip install "setuptools<81"',
+        'uv pip install matplotlib "numpy<2" scipy pandas tqdm scikit-learn',
+        "uv pip install weco==0.3.0",
+        'uv pip install "setuptools<81"',
     ]),
-    "causalml": lambda: conda_create("causalml", "3.10", [
-        'pip install "cython<3" "scikit-learn>=1.6.0,<1.9.2" "scipy>=1.8,<1.9.2" "packaging>=21.3" '
+    # conda -> uv, pins unchanged.
+    "causalml": lambda: uv_create("causalml", "3.10", [
+        'uv pip install "cython<3" "scikit-learn>=1.6.0,<1.9.2" "scipy>=1.8,<1.9.2" "packaging>=21.3" '
         '"typing-extensions<4.6.0" "platformdirs>=2" "tomli>=1.1.0" "contourpy>=1.0.1" '
         '"cycler>=0.10" "fonttools>=4.22.0" "kiwisolver>=1.3.1" "pillow>=8" "python-dateutil>=2.7" '
         '"numpy>=1.18.5,<1.25.0" "pytz>=2020.1" "tzdata>=2022.7" "llvmlite>=0.44.0,<0.45"',
-        'pip install "optree<0.16.0" pandas matplotlib seaborn xgboost==3.2.0 lightgbm==4.6.0 '
+        'uv pip install "optree<0.16.0" pandas matplotlib seaborn xgboost==3.2.0 lightgbm==4.6.0 '
         'sphinx sphinx_rtd_theme "sphinxcontrib-bibtex<2.0.0" nbsphinx statsmodels shap pathos',
-        "pip install tensorflow==2.10.0",
-        "pip install weco==0.3.0",
-        'pip install "setuptools<81"',
+        "uv pip install tensorflow==2.10.0",
+        "uv pip install weco==0.3.0",
+        'uv pip install "setuptools<81"',
     ]),
     # Unchanged pins. TF 2.10 has no Blackwell support (and no CUDA 11 libs here), so it runs on CPU.
     "art": lambda: uv_create("art", "3.10", [
@@ -743,25 +754,28 @@ CONDA_ENVS = {
         "matplotlib==3.9.2",
         "uv pip install weco==0.3.0",
     ])),
-    "aif360": lambda: conda_create("aif360", "3.10", [
-        'conda install "numpy<2" scipy pandas scikit-learn==1.1.3 "matplotlib==3.8.4" tqdm seaborn -y',
-        'pip install lightgbm==3.1.1 "igraph[plotting]==0.9.8"',
-        "pip install lime adversarial-robustness-toolbox==1.13.0 BlackBoxAuditing "
+    # conda -> uv. conda's torchvision 0.13.1/torchaudio 0.12.1 (--no-deps, ABI-incompatible with
+    # torch 2.10) dropped: the task (TF adversarial debiasing) does not import them.
+    "aif360": lambda: uv_create("aif360", "3.10", [
+        'uv pip install "numpy<2" scipy pandas scikit-learn==1.1.3 "matplotlib==3.8.4" tqdm seaborn',
+        'uv pip install lightgbm==3.1.1 "igraph[plotting]==0.9.8"',
+        "uv pip install lime adversarial-robustness-toolbox==1.13.0 BlackBoxAuditing "
         "tensorflow-gpu==2.10.1 cvxpy==1.7.5 fairlearn==0.9.0 skorch==0.11.0 inFairness==0.2.3 "
         "pot==0.9 mlxtend colorama",
-        'pip install "pytest>=3.5.0" "pytest-cov>=2.8.1"',
-        "pip install weco==0.3.0",
-        "conda install -c pytorch torchvision==0.13.1 torchaudio==0.12.1 --no-deps -y",
-        "pip install torch==2.10.0",
-        'pip install "setuptools<81"',
+        'uv pip install "pytest>=3.5.0" "pytest-cov>=2.8.1"',
+        "uv pip install weco==0.3.0",
+        "uv pip install torch==2.10.0",
+        'uv pip install "setuptools<81"',
     ]),
-    "fairlearn": lambda: conda_create("fairlearn", "3.10", [
-        "pip install fairlearn==0.13.0 scikit-learn==1.7.2 pandas numpy==2.2.6 scipy==1.15.3",
-        'pip install "setuptools<81"',
+    # conda -> uv, pins unchanged.
+    "fairlearn": lambda: uv_create("fairlearn", "3.10", [
+        "uv pip install fairlearn==0.13.0 scikit-learn==1.7.2 pandas numpy==2.2.6 scipy==1.15.3",
+        'uv pip install "setuptools<81"',
     ]),
-    "gcastle": lambda: conda_create("gcastle", "3.9", [
-        "pip install gcastle==1.0.4 numpy==2.0.2 scipy==1.13.1 scikit-learn==1.6.1 tqdm==4.67.3",
-        "pip install torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu",
+    # conda -> uv, pins unchanged.
+    "gcastle": lambda: uv_create("gcastle", "3.9", [
+        "uv pip install gcastle==1.0.4 numpy==2.0.2 scipy==1.13.1 scikit-learn==1.6.1 tqdm==4.67.3",
+        "uv pip install torch==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu",
     ]),
     # torch 2.5.1+cu121 -> 2.7.1+cu128 for Blackwell (sm_120) support.
     "pycil": lambda: uv_create("pycil", "3.10", [
@@ -793,16 +807,18 @@ CONDA_ENVS = {
         f"uv pip install torch==2.7.1+cu128 torchvision==0.22.1+cu128 {TORCH_CU128}",
         "uv pip install scikit-learn==1.6.1 numpy==2.0.2 scipy==1.13.1",
     ]),
-    "pfllib": lambda: conda_create("pfllib", "3.11", [
-        "pip install torch==2.0.1 torchvision==0.15.2",
-        "pip install numpy==1.26.4 scipy==1.17.1 scikit-learn==1.8.0 tqdm cvxpy ujson==5.12.0",
-        'pip install "setuptools<81"',
+    # conda -> uv, pins unchanged.
+    "pfllib": lambda: uv_create("pfllib", "3.11", [
+        "uv pip install torch==2.0.1 torchvision==0.15.2",
+        "uv pip install numpy==1.26.4 scipy==1.17.1 scikit-learn==1.8.0 tqdm cvxpy ujson==5.12.0",
+        'uv pip install "setuptools<81"',
     ]),
-    "open_unlearning": lambda: conda_create("open_unlearning", "3.11", [
-        "pip install torch==2.4.1",
-        "pip install transformers==4.51.3 datasets==3.0.1 accelerate==0.34.2 numpy==2.2.3 "
+    # conda -> uv, pins unchanged.
+    "open_unlearning": lambda: uv_create("open_unlearning", "3.11", [
+        "uv pip install torch==2.4.1",
+        "uv pip install transformers==4.51.3 datasets==3.0.1 accelerate==0.34.2 numpy==2.2.3 "
         "scipy==1.14.1 scikit-learn==1.5.2 tqdm==4.67.3 hydra-core==1.3.0 omegaconf==2.3.0",
-        'pip install "setuptools<81"',
+        'uv pip install "setuptools<81"',
     ]),
 }
 
