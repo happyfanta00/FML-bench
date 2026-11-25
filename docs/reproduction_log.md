@@ -618,14 +618,34 @@ setsid nohup scripts/reproduction/run_lite_queue.sh $L > $L/queue.out 2>&1 < /de
   - DeepSeek 的平均 NI 是 0.2508，在 Opus 5.5（0.2812）和 GPT-6 Astra（0.2425）之间。
   - 8 个任务 DeepSeek 都不如 Opus 5.5。
   - 和 GPT-6 Astra 相比，DeepSeek 在 pycil、usb、officehome、privacymeter 上更好，domainbed 持平，openood、opacus、ART 更差。
-  - 去掉 domainbed 和 privacymeter 后，DeepSeek 是 0.1499，略低于 GPT-6 Astra 的 0.1555。DeepSeek 的平均分高于 GPT-6 Astra，主要是因为 privacymeter（0.61 对 0.51）。
+  - 去掉 domainbed 和 privacymeter 后，DeepSeek 是 0.1499，略低于 GPT-6 Astra 的 0.1555。DeepSeek 的平均分高于 GPT-6 Astra，主要是因为 privacymeter（0.61 对 0.51）。而 DeepSeek 在 privacymeter 上的分数依赖评测的弱点（见下文快照检查），所以比较通用能力时应看去掉这两个任务后的那一行。
 - **opacus**：0.0363，五种方法里最低。
 - **ART**：0.6059，五种方法里最低，比其余四种低 0.07～0.10。
   - 被测的第 29 步没有剔除毒样本，只用了 mixup、0.1 的标签平滑和 L2 正则。
   - 因此 test 的 poison_acc 是 0.112，5.3、5.5 的被测步都是 0.013；clean_acc 是 0.915，5.3、5.5 分别是 0.948 和 0.952。
   - 这一步还把 `split_config.json` 的 `val_ratio` 从 0.20 改成了 0.15，训练数据多了约 6%，和第 7 章 opacus 那条待办是同一类问题。
-- **privacymeter**：test AUC_gap 是 0.0145，两个 TPR 都是 0，NI 接近 5.1 的 Opus 5.5。5.1 的高分来自利用评测弱点的路由式防御（5.2）。这次的高分是否也是这样，要等快照检查（第 7 章待办）确认。
+- **privacymeter**：test AUC_gap 是 0.0145，两个 TPR 都是 0，NI 接近 5.1 的 Opus 5.5。高分来自推理时的置信度掩蔽，利用了评测只做基于分数的攻击这一点（见下文快照检查）。
 - **token**：8 个任务共 26.1M。5.1 的 Opus 5.5 是 25.3M，5.5 的 GPT-6 Astra 是 16.8M。
+
+**快照检查**（方法同 5.2）
+
+- **全部快照的静态扫描**（8 个任务 × 100 步，只看新增或改动的行）：
+  - 被测步里只有一处命中：pycil 第 18 步用 `sys.modules` 读取 `models.der` 模块里的 epoch 数，只读，没有写入。其余命中都是误报，比如 `global`、`.eval()`、注释里的 `results_tmp`。
+  - 不在被测步里的：opacus 第 61、68 步把 `torch.optim.SGD` 替换成了带学习率调度的子类（val 分别为无效和 0.534），另有一些步读取了 `split_config.json`，或者创建了 `results_tmp/` 目录。没有任何一步自己写入结果文件。
+- **被测步逐个阅读**：8 个任务都没有读取 val/test 数据，也没有改动评测代码，改动的都是 `target_files` 里的文件。
+
+| 任务 | 被测代码做了什么 | 判断 |
+|---|---|---|
+| **privacymeter**（第 83 步） | ① `wide_resnet.py`：eval 模式下的 forward 不再输出真实概率，而是输出一个接近均匀分布的固定分布：预测类别是 0.1 ×（1 + 0.001），其余 9 类都是同一个值。argmax 不变，所以准确率不变。② 训练时（`training` 为真，或者 trainer 把 `perturb_at_eval` 关掉时）输出正常的 LogitNorm logits；trainer 在训练和验证时关掉这个变换，训练结束后再打开。③ `default_trainer.py`：mixup、标签平滑 0.1、裁剪加 Cutout 增强、EMA（0.999）加 BN 重新校准、Lookahead、drop-path、梯度裁剪，按 held-out loss 早停和选模型。test 准确率 0.6287 | **符合规则，但利用了评测的弱点**。审计调用 `model.eval()` 后对 `model(x)` 取 softmax（`get_signals.py`），参考模型也用同一份代码训练，所以 RMIA 拿到的置信度对所有样本都一样，唯一剩下的信号是"预测对没对"，AUC_gap 0.0145 就来自这里。这等于把模型对外接口改成了只给标签（confidence masking）。不看置信度、只看标签的攻击（比如看数据增强或微小扰动下预测是否稳定，Choquette-Choo et al. 2021）不受影响。和 5.1 相比，这次没有按哈希路由，只用了 5.1 里第 ② 部分那种固定置信度的做法 |
+| **domainbed**（第 97 步） | ① `networks.py` 的 `_canonicalize`：输入是 2 通道时，取方差大的那个通道（也就是有数字的那个）放到第 0 通道，另一个通道清零，等于去掉了颜色；② 残差 CNN 加 SE 和 CBAM 注意力、Dropout2d；③ ERM 加权重 EMA、±2 像素平移增强，预测时用 EMA 权重，对 9 个平移位置的输出取平均 | **利用题目先验**，和 5.1、5.3、5.5 一样 |
+| ART（第 29 步） | `dp_instahide_trainer.py` 在原有的增强和加噪之外，加了 batch 内 mixup（λ ≥ 0.5）和 0.1 的标签平滑，训练 30 个 epoch（原来 20）；`model.py` 给各层加了 1e-4 的 L2 正则，Adam 学习率改为 5e-4；`split_config.json` 的 `val_ratio` 从 0.20 改为 0.15。`predict` 没改 | 常规的正则化防御，没有剔除毒样本，所以 poison_acc 较高（见上文）。`val_ratio` 是允许修改的，改完之后训练数据多了约 6% |
+| pycil（第 18 步） | `icarl.py` 里的 `iCaRL` 改为继承仓库自带的 `models.der.DER`（每个任务新增一个 ResNet-32 骨干，冻结旧骨干），再换成 Nesterov SGD 加 cosine 学习率，增量阶段的学习率从 0.1 按 0.85 逐步衰减，下限 0.05 | 常规方法，复用了仓库里现成的 DER。样例预算沿用基类，没有改动；`test_loader` 只在 DER 原来的代码里用来打印日志。注意 6 个阶段下来骨干参数是原来的 6 倍 |
+| usb（第 81 步） | WRN-28-2 加 BlurPool 下采样和 SE 门控，评估时做水平翻转 TTA；训练从 15000 步加到 40000 步，无标签 batch 从 64 加到 128，阈值从 0.95 改为 0.85；自写的 RandAugment 加翻转和 Cutout。`num_labels` 仍是 200 | 常规方法，主要是改结构和调参。训练循环在 harness 里，没有用到无标签数据的标签 |
+| openood（第 88 步） | 余弦分类头；打分是余弦原型上的多尺度 Energy，加上 ASH、ReAct 两种特征处理的变体、top-2 margin、原型子空间的残差范数、两步 ODIN 式的输入扰动，以及对训练特征库（10000 条的循环缓冲）的 KNN 相似度，最后做翻转 TTA | 常规方法。特征库只在 `self.training` 为真时更新，harness 只在训练集上调用 `model.train()`。打分函数先切到 eval 模式，全部是逐样本计算，没有用到 batch 层面的统计量（ID 和 OOD 是分开成 batch 打分的） |
+| opacus（第 84 步） | 4 个 stage 的残差 CNN（GroupNorm、SiLU、ResNet-D 式下采样）；在模型的 forward 里对每个样本单独做翻转、平移、缩放、旋转、颜色抖动和 Cutout；参数 EMA（0.995）存在 buffer 里，推理时换成 EMA 权重，做 30 视图 TTA；epochs 20→50，lr 0.1→0.3，batch 512→1024；`val_ratio` 从 0.114 改为 0.02 | 常规方法。**DP 保证仍然成立**：增强只依赖单个样本，没有跨样本混合；EMA 是对 DP 迭代结果的后处理；ε 由 harness 按新配置用 `make_private_with_epsilon` 校准，`target_epsilon` 和 `max_grad_norm` 没改，最终 ε 是 7.9939。`val_ratio` 调小后训练集多了约 10.6%，和 5.2 的 Opus 是同一类问题 |
+| officehome（第 79 步） | SAM（ρ=0.05）、标签平滑 0.1、mixup/CutMix、跨域特征均值和方差对齐、翻转一致性损失、EMA（0.997），预测时做翻转 TTA；ResNet 特征后面接了几个零初始化的适配器、注意力和 MLP 精炼层，都带 drop-path | 常规方法，分数没有意义（见上文） |
+
+- 和其他方法相比：domainbed 依赖题目先验，这一点和 5.1、5.3、5.5 相同。privacymeter 依赖评测的弱点，这一点和 5.1 的 Opus 5.5 相同，但手法不同（这次没有按哈希路由）；5.3、5.5 在 privacymeter 上用的是正常的防御。
 
 ---
 
@@ -946,7 +966,7 @@ NI 的口径同 6.9，快照检查同 6.10。结果写进第 5 章的新一节�
 - [x] 提交沙盒、耗时记录、复现脚本、新 baseline 和第 8 章的 `setup.py` 改动（`6ff6b53`、`74ff570`）
 - [x] ai_scientist_v2 的 Lite 正式测试与打分（5.1）
 - [x] 检查正式测试中各任务最佳步的代码快照（5.2）：没有读取数据，也没有改动评测代码；domainbed 利用了题目先验，privacymeter 利用了评测只做非自适应攻击这一点
-- [ ] privacymeter：是否在评测中加入自适应攻击（例如对查询做扰动），防止基于输入哈希的路由式防御拿到接近 0 的 AUC_gap（这属于修改 benchmark，需要决定）
+- [ ] privacymeter：是否在评测中加入自适应攻击（例如对查询做扰动），防止基于输入哈希的路由式防御拿到接近 0 的 AUC_gap（这属于修改 benchmark，需要决定）。5.6 的 DeepSeek 用的是推理时的置信度掩蔽（只给标签），要堵住它，还需要加入只看标签的攻击（label-only MIA）
 - [x] 提交 `compute_agent_metrics.py` 的 `--lite`/`--tasks`、`setup.py` 的 `pyarrow<26`、`run_lite_queue.sh` 的 `AGENT`/`QUEUE_SLOTS`、README 的说明和本文档
 - [x] 合并 g7e.24xlarge 上的改动：数据缓存、按单卡重测的 baseline、停止跟踪运行产物。两版 baseline 都保留（3.5）
 - [ ] domainbed（ColoredMNIST）利用题目先验大幅提升（见 5.2）：要不要通过改任务说明来限制（这属于修改 benchmark，需要决定）
@@ -963,7 +983,7 @@ NI 的口径同 6.9，快照检查同 6.10。结果写进第 5 章的新一节�
 - [ ] officehome 实际只有 2 类（5.4）：每个域下只有 `train/`、`val/` 两个子目录，DomainBed 把它们当成类别，所以模型学的是"文件在不在 `val/` 下"，不是 65 类物体。是否改为按类别目录组织数据（例如合并每个域的 `train/` 和 `val/`），需要决定。这会改变 baseline 和所有已有结果
 - [x] 接入 us-east-2 上自部署的 DeepSeek-V4.1-Flash（provider `VLLM`，4.1），只验证了 LLM 调用，测试方法见 6.12
 - [x] 用 `deepseek-v4.1-flash-1017` 做 ai_scientist_v2 × Lite 的正式测试和打分（5.6），结果已写入 `docs/lite_results_by_method.csv`
-- [ ] ai_scientist_v2 × DeepSeek-V4.1-Flash（5.6）的快照检查（方法同 5.2）。先看 privacymeter 第 83 步是否用了 5.2 那种路由式防御
+- [x] ai_scientist_v2 × DeepSeek-V4.1-Flash（5.6）的快照检查：没有读取数据，也没有改动评测代码；domainbed 利用了题目先验，privacymeter 用推理时的置信度掩蔽利用了评测只做基于分数的攻击这一点
 - [ ] g7e.24xlarge 的 `/mnt/nvme`（实例存储 RAID）不在 `/etc/fstab` 里，重启后要手动 `sudo mount /dev/md0 /mnt/nvme`。
   - 2026-11-08 和 11-22 这台机器都在周日 02:00 UTC 左右被重启过。
   - 原因是 AWS SSM Patch Manager：Maintenance Window 发来 `AWS-RunPatchBaseline`，配置是 `RebootOption: RebootIfNeeded`，PatchGroup 是 `DEV`。
