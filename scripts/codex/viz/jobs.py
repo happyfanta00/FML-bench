@@ -241,10 +241,10 @@ def baseline(run: Path) -> int:
             same = ref.read_bytes() == (bdir / "val_info.json").read_bytes()
             ref_v = meta.get("baseline_reference")
             job.step("compare", "ok" if same else "warn",
-                     "byte-identical to the reference" if same else
-                     f"{rec['metric']:.4f} vs reference {ref_v:.4f} ({rec['metric'] - ref_v:+.4f})")
+                     f"与 L4 参考值 {ref_v:.4f} 逐字节相同" if same else
+                     f"{rec['metric']:.4f}，L4 参考值 {ref_v:.4f}（{rec['metric'] - ref_v:+.4f}；不是 L4 显卡时有差别是正常的）")
         else:
-            job.step("compare", "warn", "no reference to compare with")
+            job.step("compare", "warn", "没有参考值可比较")
         # 7: the measured baseline becomes the run's baseline; now the prompts can be written.
         job.step("prompts", "running")
         meta["baseline_val"] = rec["metric"]

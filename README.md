@@ -1,72 +1,67 @@
-<p align="center">
-  <a href="https://github.com/qrzou/FML-bench">
-    <img src="docs/figs/main_logo_v3.png" style="height: 10em" alt="FML-bench" />
-  </a>
-</p>
+# auto-research-simple-demo：在沙盒里观察 Codex 自主做机器学习研究
 
-<p align="center">
-    <a href="http://www.apache.org/licenses/LICENSE-2.0">
-        <img alt="License" src="https://img.shields.io/badge/License-Apache--2.0-blue">
-    </a>
-</p>
+这个项目让 Codex（goal 模式）作为一个自动做研究的 agent，在隔离的沙盒里反复修改一个机器学习任务的代码、训练、评测，并用一个网页实时展示它的整个研究过程。
 
-> **Note:** Paper link [arxiv:2605.17373](https://arxiv.org/abs/2605.17373). The previous version ([arxiv:2510.10472](https://arxiv.org/abs/2510.10472)) lives on the [`legacy`](https://github.com/qrzou/FML-bench/tree/legacy) branch.
+项目基于 [FML-bench](https://github.com/qrzou/FML-bench)（论文 [arXiv:2605.17373](https://arxiv.org/abs/2605.17373)）。FML-bench 是一个评测自动机器学习研究 agent 的基准：给 agent 一份 baseline 代码、一套评测脚本和一段任务说明，让它不断改进 baseline。
 
-A benchmark for automatic ML research agents on fundamental machine learning
-problems. Agents are given a baseline codebase, evaluation harness, and task
-description, and are asked to iteratively improve the baseline.
+## 目录
 
-<p align="center">
-    <img src="docs/figs/benchmark_pipeline_v3.png" style="width: 60em" alt="FML-bench pipeline" />
-</p>
+- [1. What we do](#1-what-we-do)
+- [2. 效果展示](#2-效果展示)
+- [3. How to use](#3-how-to-use)
+- [致谢与许可](#致谢与许可)
 
 
-## Contents
+## 1. What we do
 
-- [Quick Start](#quick-start)
-- [在一台全新的 g6.2xlarge 上运行 Codex goal 可视化（ColoredMNIST）](#在一台全新的-g62xlarge-上运行-codex-goal-可视化coloredmnist)
-- [Setup](#setup)
-- [Run an agent (example)](#run-an-agent-example)
-- [Run with other models](#run-with-other-models)
-- [Run on other tasks](#run-on-other-tasks)
-- [FML-bench-Lite](#fml-bench-lite)
-- [Remote GPU execution (Modal)](#remote-gpu-execution-modal)
-- [Score a run](#score-a-run)
-- [Available agents](#available-agents)
-- [Repository layout](#repository-layout)
-- [Citation](#citation)
-- [Acknowledgements](#acknowledgements)
+我们在 FML-bench 的基础上做了下面这些事情。
 
+### 让基准在新的机器上跑起来
 
-## Quick Start
+- **用 uv 代替 conda 构建任务环境。** FML-bench 原来用 conda 为每个任务建一个 Python 环境。我们把 FML-bench-Lite 的 8 个任务和另外 8 个非 Lite 任务的环境都改成用 uv 构建，Python 解释器也由 uv 统一下载管理，机器上不需要安装 conda。
+- **适配新的显卡。** FML-bench-Lite 中使用 PyTorch 的任务原来固定的版本不支持 NVIDIA Blackwell 显卡（RTX PRO 6000），我们把它们统一换成了支持这款显卡的版本（torch 2.7.1 + CUDA 12.8），并在 NVIDIA L4 上确认这些环境同样能正常使用。
+- **数据只存一份。** 各个任务的数据集放在一个共享的缓存目录里，任务目录里只放指向它的链接。
+- **在新硬件上重新测了 baseline。** 换了显卡和软件版本之后，部分任务的 baseline 分数和原论文略有不同，我们重新测量并记录了这些分数，作为评价 agent 的基准。
 
-Install everything (task repos, datasets, conda envs):
+### 增加沙盒
 
-```bash
-python setup.py
-```
+- agent 在 bubblewrap 沙盒里运行。沙盒里只能看到当前任务的代码、这个任务的 Python 环境、处理过的数据和分配给它的那一张显卡，看不到机器上的其他文件（包括其他任务、真实数据、SSH 密钥和 AWS 凭证）。任务的评测代码和数据都是只读的。
+- **隐藏测试集被替换成空白图像。** 测试集的样本和训练、验证数据放在同一份数据文件里，agent 理论上可以读到。我们在 agent 看到的数据副本里，把属于隐藏测试集的图像全部替换成空白图，标签和文件结构保持不变，并验证了替换后验证集上的分数和原来完全相同。
+- **agent 只能通过固定的工具训练和评测。** `fml-val` 把 agent 修改过的文件放进一份全新的 baseline 代码副本里运行官方的验证命令，并记录每一次运行的代码、日志和分数；`fml-status` 显示剩余时间、剩余次数和当前阶段；`fml-submit` 让 agent 选定最终提交的版本。时间和次数用完后，`fml-val` 会拒绝再运行。
+- **事后审计。** 运行结束后，脚本会在一个使用真实数据的新沙盒里重新训练 agent 提交的版本，并在隐藏测试集上评测；同时检查 agent 的会话记录，标出可疑的行为，例如在 `fml-val` 之外训练模型、访问网络、试图接触测试集。
 
-Run an agent (e.g. AI Scientist v2 on Causality_causalml with GPT-5.4):
+### 适配 Codex goal 模式作为 agent
 
-```bash
-conda activate fmlbench
-export OPENAI_API_KEY="your_openai_api_key"
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/causality_causalml.yaml \
-    --model gpt-5.4 --provider OpenAI \
-    --output-dir results \
-    agent.ai_scientist_v2.max_steps=100
-```
+- Codex 的 goal 模式会自动连续工作，直到它自己判断目标已经完成。我们为它写了任务说明和完成条件：只有在用完预算、提交了结果、写好了最终报告之后，才能把目标标记为完成。
+- Codex 在沙盒里运行，通过实例角色调用 Amazon Bedrock 上的模型（本项目使用 GPT-6 Astra，推理强度为 high），关闭了网页搜索。
+- 我们为 Codex 的会话记录写了解析器，用来统计它执行过的命令、修改过的代码和使用的 token，并据此做审计。
+- 此外，我们也让 Claude Code 的 `/goal` 模式、以及 FML-bench 自带的 agent（ai_scientist_v2、autoresearch）通过 Bedrock 上的 Claude、GPT 模型和自己部署的 vLLM 模型运行。
 
-See [Setup](#setup) and [Run an agent (example)](#run-an-agent-example) for full instructions (per-task setup, GPU selection, other providers).
+### 可视化前端
+
+针对 ColoredMNIST 任务（DomainBed 中颜色是“捷径”特征的域泛化任务），我们做了一个网页，在浏览器里实时观看 Codex 的研究过程：
+
+- **任务介绍页**：用真实样本图片讲解数据是怎么生成的、三个域有什么不同、怎么评测，以及只用颜色、只用形状和 baseline 分别能达到多少分。
+- **baseline 一键复现**：在页面上点击按钮，在和 agent 相同的沙盒里运行一次原始代码，同时检查沙盒、显卡和数据是否正常。baseline 成为第一个“当前最好模型”之后，才允许启动 Codex。
+- **研究流程（页面左侧）**：Codex 每调用一次 `fml-val` 就是一个节点。每个节点可以查看 Codex 写下的改动思路和预期、相对 baseline 或任意节点的代码差异、实时训练曲线和日志、它在两次尝试之间做了什么（发言、思考摘要、执行的命令、修改代码的补丁和 token 用量），以及它看到结果后写下的结论。
+- **当前最好模型（页面右侧）**：显示这个模型在固定的一批验证集样本上的预测，以及按“标签是否被噪声翻转”和“颜色是否与标签一致”分成四组的准确率。从这四组准确率可以直接看出模型依靠的是数字的形状还是颜色。页面还会用两种不同的分组顺序各预测一遍，如果两次结果不同，就标出“预测依赖 batch 组成”，说明模型在利用同一批测试样本之间的统计信息。
 
 
-## 在一台全新的 g6.2xlarge 上运行 Codex goal 可视化（ColoredMNIST）
+## 2. 效果展示
+
+![Codex goal 模式改进 ColoredMNIST 的一次完整运行](assets/codex_goal_coloredmnist_viz.png)
+
+这是一次完整运行（1 小时、20 次 `fml-val` 的预算）结束时的页面：
+
+- 左侧的验证集曲线和节点列表显示，Codex 用 19 次尝试把验证集分数从 baseline 的 0.2626 提高到 0.9057。每个节点后面是它完成的时间（东八区），带星号的节点刷新了当前最好分数。下方是最后一个节点的详情：Codex 写的标题、思路、预期、结果和结论。
+- 右侧是当前最好的模型（第 8 次尝试）。它的分数超过了“只用形状”的上限 0.75，页面在标题旁标出了“预测依赖 batch 组成（75 个样本不同）”。四组准确率显示，它的预测和图像颜色的一致率是 0%：凡是颜色和标签一致的样本它都答错，颜色和标签相反的样本它都答对。也就是说，这个模型从每一批测试样本的整体统计中推断出“测试域里颜色规则是反的”，然后把颜色反过来使用。这个提升来自利用评测方式和数据的构造，而不是更好的泛化能力。可视化让这一点一眼就能看出来。
+
+
+## 3. How to use
 
 这一节说明如何从一台刚创建的 AWS g6.2xlarge 实例开始，配置好全部环境，然后在 Mac 的浏览器里观看 Codex（goal 模式）改进 ColoredMNIST 任务的全过程。
 
-整个流程分为两部分：第一部分（第 1～6 步）是一次性的准备工作，大约需要 20 分钟；第二部分（第 7～10 步）是每次实验都要做的事情，一次实验大约 1 小时。
+整个流程分为两部分：第一部分（第 1～5 步）是一次性的准备工作，大约需要 15 分钟；第二部分（第 6～9 步）是每次实验都要做的事情，一次实验大约 1 小时。
 
 g6.2xlarge 的配置是 1 张 NVIDIA L4 显卡（24 GB 显存）、8 个 CPU 核和 32 GB 内存，本节的所有参数都是按这个配置设定的。
 
@@ -141,10 +136,11 @@ credential_process = /usr/local/bin/aws configure export-credentials --profile d
 
 ```bash
 cd ~
-git clone <仓库地址> FML-bench
+git clone https://github.com/happyfanta00/auto-research-simple-demo.git FML-bench
 cd FML-bench
-git checkout codex-awesome可视化
 ```
+
+后面所有的命令都假定代码放在 `~/FML-bench` 目录下。
 
 ### 第 5 步：创建 Python 环境并准备数据
 
@@ -158,40 +154,19 @@ UV_PYTHON_PREFERENCE=only-managed python3 setup.py --skip-data --task Generaliza
 # 2. 下载 MNIST 数据到 ~/fml_data_cache，并在任务目录里建立指向它的链接。
 UV_PYTHON_PREFERENCE=only-managed python3 setup.py --skip-envs --data-cache ~/fml_data_cache --task Generalization_domainbed
 
-# 3. 创建网页服务用的 Python 环境。
+# 3. 生成沙盒里使用的数据：把隐藏测试集对应的图像替换成空白图，标签和文件结构不变，大约 10 秒。
+#    env_l4.sh 设置本节所有脚本使用的数据目录和运行目录；以后每打开一个新的终端，运行这些脚本之前都要先执行这一行。
+. scripts/codex/env_l4.sh
+python3 scripts/claude_code/build_task_view.py Generalization_domainbed
+
+# 4. 创建网页服务用的 Python 环境。
 uv venv --python 3.11 ~/fml_envs/viz
 VIRTUAL_ENV=~/fml_envs/viz uv pip install "fastapi==0.118.*" "uvicorn==0.37.*"
 ```
 
-### 第 6 步：测量这台机器上的参考分数，并生成沙盒用的数据
+到这里，一次性的准备工作就完成了。环境和数据是否真的可用，会在后面用网页上的“运行 baseline”一并检查。
 
-不同型号的显卡会让这个任务的原始代码（baseline）得到略有不同的分数，所以要先在这台机器上测一次，作为后面的参考值。在 L4 上，这个分数应该是 0.2626。
-
-```bash
-cd ~/FML-bench
-
-# 1. 用原始代码训练并评测一次，大约 3 分钟。结果保存在 rebaseline_results/Generalization_domainbed__l4x1/，
-#    网页上的“与参考值比较”会读取这个目录，所以目录名不要改。
-scripts/reproduction/rebaseline_task.sh Generalization_domainbed 0 __l4x1
-cat rebaseline_results/Generalization_domainbed__l4x1/val_info.json     # in_acc_mean 应该是 0.2626 左右
-
-# 2. 设置本节所有脚本使用的数据和运行目录（每打开一个新的终端都要先执行这一行）。
-. scripts/codex/env_l4.sh
-
-# 3. 生成沙盒里使用的数据：把隐藏测试集对应的图像替换成空白图，大约 10 秒。
-python3 scripts/claude_code/build_task_view.py Generalization_domainbed
-
-# 4. 检查替换后的数据：在沙盒里用原始代码跑一次，验证集分数必须和第 1 步完全相同，大约 3 分钟。
-python3 scripts/claude_code/verify_task_view.py Generalization_domainbed --gpu 0 --cpus L0 \
-    --baseline-dir rebaseline_results/Generalization_domainbed__l4x1 \
-    --val-times scripts/codex/val_times_l4.json
-```
-
-最后一条命令的输出里应该有 `val OK (byte-identical ...)`，表示沙盒、显卡和数据都没有问题。
-
-到这里，一次性的准备工作就完成了。
-
-### 第 7 步：启动网页服务，并在 Mac 上打开页面
+### 第 6 步：启动网页服务，并在 Mac 上打开页面
 
 在实例上启动网页服务。它只在实例本机的 8765 端口上提供服务，外部无法直接访问：
 
@@ -208,17 +183,19 @@ ssh -i <你的密钥文件> -L 8765:localhost:8765 ec2-user@<实例的公网地�
 
 然后在 Mac 的浏览器里打开 http://localhost:8765 。
 
-### 第 8 步：在页面上新建一次运行，并复现 baseline
+### 第 7 步：在页面上新建一次运行，并复现 baseline
 
 1. 第一次打开时，页面上还没有运行，点击“新建运行”。
 2. 页面会先显示任务介绍：数据是怎么生成的、三个域的样本图片、评测方式和参考分数。看完后点击“我已了解，进入主页面”。
-3. 在主页面右侧点击“运行 baseline”，大约需要 3 分钟。页面会依次显示七项检查：沙盒、显卡、数据、训练、预测、与参考值比较、生成提示词。全部通过后，baseline 会成为第一个“当前最好模型”，右侧开始显示它的预测结果。
+3. 在主页面右侧点击“运行 baseline”，大约需要 3 分钟。它在和 Codex 完全相同的沙盒里，用任务的原始代码训练并评测一次，同时依次显示七项检查：沙盒、显卡、数据、训练、预测、与参考值比较、生成提示词。
+   - “与参考值比较”使用仓库里记录的参考结果（`ml_tasks/Generalization_domainbed/baseline_results/l4/`）。它是用真实数据在 NVIDIA L4 上测得的，验证集分数为 0.2626，而且每次运行结果都完全相同。在 g6 实例上，这次的结果应该和它逐字节相同，这同时说明沙盒里替换过图像的数据没有影响验证集。
+   - 全部通过后，baseline 会成为第一个“当前最好模型”，右侧开始显示它的预测结果。
 
 这一步不计入 Codex 的 20 次 `fml-val`，也不会开始 1 小时的计时。baseline 完成之前，Codex 无法启动。
 
-### 第 9 步：启动 Codex
+### 第 8 步：启动 Codex
 
-baseline 完成后，页面顶部会出现启动命令和 goal 的复制按钮。
+baseline 完成后，页面顶部会出现“复制启动命令”和“复制 goal”两个按钮。启动 Codex 之后它们也会一直显示，粘贴 goal 之前随时可以回来复制。
 
 1. 在实例上（另开一个 SSH 窗口）进入 tmux：
 
@@ -238,7 +215,7 @@ baseline 完成后，页面顶部会出现启动命令和 goal 的复制按钮�
 - 不要在沙盒的命令提示符下按 `Ctrl-C`，这会关闭整个沙盒。在 Codex 的界面里按 `Ctrl-C` 只会中断 Codex 当前的操作。
 - 如果中途退出了 Codex，可以重新运行同一条启动命令进入沙盒，再用 `cx-start resume --last` 继续，截止时间不会改变。
 
-### 第 10 步：结束和下一次实验
+### 第 9 步：结束和下一次实验
 
 - Codex 完成后，页面顶部的 goal 状态会变成 `complete`，并出现“最终报告”按钮，可以查看 Codex 写的总结。
 - 在 Codex 界面里输入 `/quit` 退出，再在沙盒里输入 `exit` 离开沙盒。如果不手动退出，沙盒会在截止时间之后 1 小时自动关闭。
@@ -250,289 +227,32 @@ baseline 完成后，页面顶部会出现启动命令和 goal 的复制按钮�
   ```
 
   它会用真实数据重新训练 Codex 提交的那次运行，并在测试集上评测；如果验证集分数最高的是另一次运行，也会一起评测，作为对照。总共需要 3 到 6 分钟，结果打印在终端里，并保存到 `benchmark_results/codex/Generalization_domainbed/viz/`。
-- 想开始下一次实验时，在页面上点击“新建运行”，然后从第 8 步开始。注意：这会删除上一次运行的全部记录（节点、模型、Codex 的会话记录和预测结果）。如果要保留，请先把 `~/fml_agent_runs/codex/Generalization_domainbed/viz` 复制到别的地方，并在复制前先运行上面的评测命令。
+- 想开始下一次实验时，在页面上点击“新建运行”，然后从第 7 步开始。注意：这会删除上一次运行的全部记录（节点、模型、Codex 的会话记录和预测结果）。如果要保留，请先把 `~/fml_agent_runs/codex/Generalization_domainbed/viz` 复制到别的地方，并在复制前先运行上面的评测命令。
 
 ### 遇到问题时
 
 | 现象 | 原因和处理方法 |
 |---|---|
-| 浏览器打不开 http://localhost:8765 | 检查 Mac 上的 SSH 端口转发窗口是否还开着；在实例上用 `cat /tmp/viz_server.log` 查看网页服务有没有报错，必要时按第 7 步重新启动 |
-| 启动命令提示 “run the baseline first” | baseline 还没有完成。回到页面，按第 8 步运行 baseline |
+| 浏览器打不开 http://localhost:8765 | 检查 Mac 上的 SSH 端口转发窗口是否还开着；在实例上用 `cat /tmp/viz_server.log` 查看网页服务有没有报错，必要时按第 6 步重新启动 |
+| 启动命令提示 “run the baseline first” | baseline 还没有完成。回到页面，按第 7 步运行 baseline |
 | baseline 的“显卡”检查失败 | 用 `nvidia-smi` 确认显卡正常，并确认没有别的程序占满显存 |
-| baseline 的“与参考值比较”显示警告 | 说明这次的分数和第 6 步测得的参考值不完全一样。环境本身仍然可用；如果差得很多，请检查是不是在别的型号的实例上做了第 6 步 |
+| baseline 的“与参考值比较”显示警告 | 说明这次的分数和仓库里记录的 L4 参考值（0.2626）不完全一样。如果实例不是 g6 系列（显卡不是 NVIDIA L4），有差别是正常的，环境仍然可以使用；如果是 L4 却差得很多，请检查第 5 步是否全部成功 |
 | Codex 报错无法调用模型，或者提示没有权限 | 检查实例的 IAM 角色是否有 Bedrock 调用权限、us-west-2 是否开通了 `openai.gpt-6-astra`，以及第 3 步的 `~/.aws/config` 是否正确 |
 | `cx-start` 提示找不到 Codex 的安装包 | 确认 `~/.local/bin/codex` 存在；如果 Codex 装在别的位置，按第 2 步设置 `FMLBENCH_CODEX_BIN_DIR` 后重启网页服务，并点击“新建运行” |
 | 沙盒突然关闭 | 在沙盒命令提示符下按了 `Ctrl-C`，或者已经超过截止时间 1 小时。原因记录在 `~/fml_agent_runs/codex/Generalization_domainbed/viz/launch.log` 里 |
 
-更详细的设计说明见 `docs/codex_agent_design.md`（沙盒和 Codex 的配置）和 `docs/codex_viz_design.md`（网页的设计和实现）。
 
 
-## Setup
+## 致谢与许可
 
-Make sure you have Anaconda/Miniconda installed before running setup.
+本项目基于 [FML-bench](https://github.com/qrzou/FML-bench) 修改而来，沿用其 Apache-2.0 许可证（见 `LICENSE`）。各个任务使用的上游代码库和数据集遵循它们各自的许可证。
 
-Everything — task repositories, datasets, and the conda environments required
-to run agents — is bootstrapped by a single command:
+FML-bench 以及本项目用到了下面这些上游项目，感谢它们的维护者：
 
-```bash
-python setup.py
-```
+- **ML Repos:** [DomainBed](https://github.com/facebookresearch/DomainBed), [easy-few-shot-learning](https://github.com/sicara/easy-few-shot-learning), [USB](https://github.com/microsoft/Semi-supervised-learning), [Lightly](https://github.com/lightly-ai/lightly), [solo-learn](https://github.com/vturrisi/solo-learn), [continual-learning](https://github.com/GMvandeVen/continual-learning), [PyCIL](https://github.com/LAMDA-CL/PyCIL), [CausalML](https://github.com/uber/causalml), [gCastle](https://github.com/huawei-noah/trustworthyAI), [Adversarial Robustness Toolbox](https://github.com/Trusted-AI/adversarial-robustness-toolbox), [OpenOOD](https://github.com/Jingkang50/OpenOOD), [Opacus](https://github.com/pytorch/opacus), [PrivacyMeter](https://github.com/privacytrustlab/ml_privacy_meter), [AIF360](https://github.com/Trusted-AI/AIF360), [Fairlearn](https://github.com/fairlearn/fairlearn), [PFLlib](https://github.com/TsingZ0/PFLlib), [open-unlearning](https://github.com/locuslab/open-unlearning)
+- **ML Research Agents:** [The AI Scientist v1](https://github.com/SakanaAI/AI-Scientist), [The AI Scientist v2](https://github.com/SakanaAI/AI-Scientist-v2), [AIDE](https://github.com/WecoAI/aideml), [AIRA](https://github.com/facebookresearch/aira-dojo), [Autoresearch](https://github.com/karpathy/autoresearch), [OpenEvolve](https://github.com/codelion/openevolve)
 
-`setup.py` is idempotent: re-running it skips repos, datasets, and envs that
-are already present.
-
-If you only want to set up a single task (much faster — only the conda
-environments that task needs are created), pass `--task`:
-
-```bash
-python setup.py --task Causality_causalml
-```
-
-Other options:
-
-```bash
-python setup.py --list           # list all available tasks
-python setup.py --skip-data      # clone repos and create envs, but skip dataset downloads
-python setup.py --skip-envs      # set up workspaces only, skip conda env creation
-```
-
-After setup completes, the harness env `fmlbench` is ready, and each task has
-its own conda env (e.g. `causalml`, `domainbed`, …) used to execute the
-baseline code.
-
-
-## Run an agent (example)
-
-This example runs **AI Scientist v2** on **Causality_causalml** using
-**GPT-5.4**.
-
-```bash
-# 1. set up just this task
-python setup.py --task Causality_causalml
-
-# 2. activate the harness env
-conda activate fmlbench
-
-# 3. provide your API key
-export OPENAI_API_KEY="your_openai_api_key"
-
-# 4. pick a GPU
-export CUDA_VISIBLE_DEVICES=0
-
-# 5. run the agent
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/causality_causalml.yaml \
-    --model        gpt-5.4 \
-    --provider     OpenAI \
-    --output-dir   results \
-    agent.ai_scientist_v2.max_steps=100
-```
-
-Results, the per-step token usage, and a `summary.json` are written under
-the chosen `--output-dir` (defaults to `benchmark_results/`); per-agent
-step budget is controlled by the `agent.<type>.max_steps=N` override (the
-example above sets it to 100).
-
-
-## Run with other models
-
-The model and provider are command-line flags. Anything supported by the
-provider works (e.g. OpenAI GPT family, Google Gemini, Anthropic Claude,
-OpenRouter passthrough). Examples:
-
-```bash
-# Gemini 2.5 Pro via Google
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/causality_causalml.yaml \
-    --model gemini-2.5-pro --provider Google \
-    --output-dir results \
-    agent.ai_scientist_v2.max_steps=100
-
-# Claude via OpenRouter
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/causality_causalml.yaml \
-    --model anthropic/claude-3.5-sonnet --provider OpenRouter \
-    --output-dir results \
-    agent.ai_scientist_v2.max_steps=100
-```
-
-Set the corresponding API key in your shell:
-
-| Provider     | Environment variable        |
-|--------------|-----------------------------|
-| OpenAI       | `OPENAI_API_KEY`            |
-| Google       | `GOOGLE_API_KEY`            |
-| Anthropic    | `ANTHROPIC_API_KEY`         |
-| OpenRouter   | `OPENROUTER_API_KEY`        |
-
-Per-agent hyperparameters can be overridden inline via positional `key=value`
-arguments, e.g.:
-
-```bash
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/causality_causalml.yaml \
-    --model gpt-5.4 --provider OpenAI \
-    --output-dir results \
-    agent.ai_scientist_v2.max_steps=100 \
-    agent.ai_scientist_v2.num_ideas=5 \
-    agent.ai_scientist_v2.max_debug_depth=2
-```
-
-
-## Run on other tasks
-
-Each task has a YAML in `configs/tasks/`. Set up the workspace for the task,
-then point `--task-config` at the corresponding file. For example, to run on
-DomainBed (Generalization):
-
-```bash
-python setup.py --task Generalization_domainbed
-python run_agent_benchmark.py \
-    --agent-config configs/agents/ai_scientist_v2.yaml \
-    --task-config  configs/tasks/generalization.yaml \
-    --model gpt-5.4 --provider OpenAI \
-    --output-dir results \
-    agent.ai_scientist_v2.max_steps=100
-```
-
-Available task configs (one per task):
-
-| Task                                     | Config file                                             |
-|------------------------------------------|---------------------------------------------------------|
-| Causality (CausalML)                     | `configs/tasks/causality_causalml.yaml`                 |
-| Causality (gCastle)                      | `configs/tasks/causality_gcastle.yaml`                  |
-| Continual Learning (continual-learning)  | `configs/tasks/continual_learning.yaml`                 |
-| Continual Learning (PyCIL)               | `configs/tasks/continual_learning_pycil.yaml`           |
-| Data Efficiency (easy-few-shot-learning) | `configs/tasks/data_efficiency.yaml`                    |
-| Data Efficiency (USB)                    | `configs/tasks/data_efficiency_usb.yaml`                |
-| Fairness (AIF360)                        | `configs/tasks/fairness_and_bias_aif360.yaml`           |
-| Fairness (Fairlearn)                     | `configs/tasks/fairness_fairlearn.yaml`                 |
-| Federated Learning (PFLlib)              | `configs/tasks/federated_learning_pfllib.yaml`          |
-| Generalization (DomainBed, ColoredMNIST) | `configs/tasks/generalization.yaml`                     |
-| Generalization (DomainBed, OfficeHome)   | `configs/tasks/generalization_officehome.yaml`          |
-| Privacy (Opacus)                         | `configs/tasks/privacy_opacus.yaml`                     |
-| Privacy (PrivacyMeter)                   | `configs/tasks/privacy_privacymeter.yaml`               |
-| Representation Learning (Lightly)        | `configs/tasks/representation_learning.yaml`            |
-| Representation Learning (solo-learn)     | `configs/tasks/representation_learning_solo_learn.yaml` |
-| Robustness (ART)                         | `configs/tasks/robustness_and_reliability_art.yaml`     |
-| Robustness (OpenOOD)                     | `configs/tasks/robustness_openood.yaml`                 |
-| Unlearning (open-unlearning)             | `configs/tasks/unlearning_open_unlearning.yaml`         |
-
-`python setup.py --list` prints the task names accepted by `--task`.
-
-
-## FML-bench-Lite
-
-**FML-bench-Lite** is a subset of the full benchmark, offered as a cheaper proxy
-for the full 18-task suite.
-
-| Task                                     | Config file                                         |
-|------------------------------------------|-----------------------------------------------------|
-| Continual Learning (PyCIL)               | `configs/tasks/continual_learning_pycil.yaml`       |
-| Data Efficiency (USB)                    | `configs/tasks/data_efficiency_usb.yaml`            |
-| Generalization (DomainBed, ColoredMNIST) | `configs/tasks/generalization.yaml`                 |
-| Generalization (DomainBed, OfficeHome)   | `configs/tasks/generalization_officehome.yaml`      |
-| Robustness (OpenOOD)                     | `configs/tasks/robustness_openood.yaml`             |
-| Privacy (Opacus)                         | `configs/tasks/privacy_opacus.yaml`                 |
-| Privacy (PrivacyMeter)                   | `configs/tasks/privacy_privacymeter.yaml`           |
-| Robustness (ART)                         | `configs/tasks/robustness_and_reliability_art.yaml` |
-
-Run an agent on these task configs and [score](#score-a-run) it exactly as you
-would the full suite. Continual Learning (continual-learning) and Unlearning
-(open-unlearning) tasks are not suitable as subset tasks due to high variance and large metric scale.
-On this subset the overall ranking of agents closely tracks
-what the full 18-task benchmark shows, making Lite a useful, cheaper proxy when a
-full sweep is out of reach.
-
-
-
-## Remote GPU execution (Modal)
-
-By default evaluations run as local subprocesses on this machine. FML-bench also
-supports an **opt-in [Modal](https://modal.com) backend** that offloads only the
-experiment-execution step (each task's validation/test command) to an ephemeral
-remote GPU sandbox, while the entire agent loop — search, code edits, metric
-parsing — stays local. This lets you run on remote GPUs and fan many tasks out
-in parallel, with no change to agent or task behavior.
-
-That backend lives on its own branch and does not affect the local default on
-this branch. For setup and usage, see the
-[`Modal` branch](https://github.com/qrzou/FML-bench/tree/Modal).
-
-
-## Score a run
-
-After an agent has run on all 18 tasks under a single `--output-dir`, score it
-with `compute_agent_metrics.py`. Point the script at that agent's result
-directory — `<output-dir>/<agent_name>`, which holds one subdirectory per task:
-
-```bash
-conda activate fmlbench
-python compute_agent_metrics.py results/ai_scientist_v2
-```
-
-For a [FML-bench-Lite](#fml-bench-lite) run, add `--lite` to score only the 8
-Lite tasks (the MEAN rows then average over those 8). `--tasks <TASK> ...`
-scores any other subset.
-
-It prints and writes three tables (as CSVs under `metric_reports/<agent_name>/`
-by default; override the location with `--output-dir`):
-
-1. **Raw Performance** — the canonical test metric for each task.
-2. **Normalized Improvement** — each task's improvement over its baseline,
-   normalized to `[0, 1]` and averaged across tasks.
-3. **Process-Level metrics** — 12 metrics spanning Exploration, Generalization,
-   Reliability, Efficiency, and Cost.
-
-The 4 Exploration metrics embed each step's code snapshot with GraphCodeBERT and
-additionally require `torch`, `transformers`, and `scikit-learn` (embeddings are
-cached under the output dir). They read each task's baseline code from
-`workspace/`, so that workspace must be at its reset (baseline) state when
-scoring. The script only reads from the result directory and refuses an
-`--output-dir` that is, or is nested inside, the result directory.
-
-
-## Available agents
-
-Seven agents are registered in this benchmark. Each has a config in
-`configs/agents/`:
-
-| Agent                 | Config file                                    |
-|-----------------------|------------------------------------------------|
-| The AI Scientist v1   | `configs/agents/theaiscientist.yaml`           |
-| The AI Scientist v2   | `configs/agents/ai_scientist_v2.yaml`          |
-| AIDE                  | `configs/agents/aide.yaml`                     |
-| AIRA                  | `configs/agents/aira_mcts.yaml`                |
-| Autoresearch          | `configs/agents/autoresearch.yaml`             |
-| OpenEvolve            | `configs/agents/openevolve.yaml`               |
-| AdaptiveSearch (ours) | `configs/agents/adaptivesearch.yaml`           |
-
-Swap `--agent-config` to switch agents — everything else (task, model,
-provider) stays the same.
-
-
-## Repository layout
-
-```
-setup.py                  # one-shot environment + workspace setup
-run_agent_benchmark.py    # entry point for running an agent on a task
-compute_agent_metrics.py  # score one agent's results (3 tables + CSVs)
-agents/                   # agent implementations
-benchmark/                # benchmark runner / executor
-configs/agents/           # agent YAMLs
-configs/tasks/            # task YAMLs
-ml_tasks/                 # task definitions: train.py, prompts, configs
-workspace/                # populated by setup.py with task codebases
-```
-
-
-## Citation
-
-If you find FML-bench useful in your research, please cite our paper:
+如果使用了 FML-bench，请引用原论文：
 
 ```bibtex
 @article{zou2026fml,
@@ -542,11 +262,3 @@ If you find FML-bench useful in your research, please cite our paper:
   year={2026}
 }
 ```
-
-
-## Acknowledgements
-
-We thank the maintainers of the following upstream projects:
-
-- **ML Repos:** [DomainBed](https://github.com/facebookresearch/DomainBed), [easy-few-shot-learning](https://github.com/sicara/easy-few-shot-learning), [USB](https://github.com/microsoft/Semi-supervised-learning), [Lightly](https://github.com/lightly-ai/lightly), [solo-learn](https://github.com/vturrisi/solo-learn), [continual-learning](https://github.com/GMvandeVen/continual-learning), [PyCIL](https://github.com/LAMDA-CL/PyCIL), [CausalML](https://github.com/uber/causalml), [gCastle](https://github.com/huawei-noah/trustworthyAI), [Adversarial Robustness Toolbox](https://github.com/Trusted-AI/adversarial-robustness-toolbox), [OpenOOD](https://github.com/Jingkang50/OpenOOD), [Opacus](https://github.com/pytorch/opacus), [PrivacyMeter](https://github.com/privacytrustlab/ml_privacy_meter), [AIF360](https://github.com/Trusted-AI/AIF360), [Fairlearn](https://github.com/fairlearn/fairlearn), [PFLlib](https://github.com/TsingZ0/PFLlib), [open-unlearning](https://github.com/locuslab/open-unlearning)
-- **ML Research Agents:** [The AI Scientist v1](https://github.com/SakanaAI/AI-Scientist), [The AI Scientist v2](https://github.com/SakanaAI/AI-Scientist-v2), [AIDE](https://github.com/WecoAI/aideml), [AIRA](https://github.com/facebookresearch/aira-dojo), [Autoresearch](https://github.com/karpathy/autoresearch), [OpenEvolve](https://github.com/codelion/openevolve)

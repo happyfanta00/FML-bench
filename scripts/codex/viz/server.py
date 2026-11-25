@@ -33,7 +33,9 @@ import rollout_index  # noqa: E402
 
 TASK = "Generalization_domainbed"
 RUN = Path(os.environ.get("FMLBENCH_VIZ_RUN", common.RUNS_ROOT / "codex" / TASK / "viz")).resolve()
-REF_BASELINE = common.REPO / "rebaseline_results" / f"{TASK}__l4x1"
+# Baseline measured on an NVIDIA L4 (g6.2xlarge), deterministic: the web baseline on the masked data must
+# reproduce it byte for byte (this also shows that the masking leaves the validation split untouched).
+REF_BASELINE = common.REPO / "ml_tasks" / TASK / "baseline_results" / "l4"
 RUN_DEFAULTS = {"gpu": 0, "cpu_slot": "L0", "budget_hours": 1.0, "max_runs": 20}
 N_STEPS = 5000          # ColoredMNIST: DomainBed's N_STEPS (5001 steps, 0..5000)
 

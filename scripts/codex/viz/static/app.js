@@ -174,8 +174,16 @@ function renderMain() {
   const st = S.st;
   const bj = st.baseline_job;
   const baseOk = bj && bj.state === "ok";
-  // banner: launch instructions once the baseline is done and the agent has not started
-  if (baseOk && !st.agent.started) {
+  // banner: launch instructions, shown for as long as the baseline is done (also after the agent has
+  // entered the sandbox: the goal is pasted only after cx-start)
+  if (baseOk) {
+    if (st.agent.started) {
+      $("#banner").innerHTML = `<div class="bar info">agent 已进入沙盒。如果还没有输入 goal：在沙盒里运行 <code>cx-start</code>，再粘贴 goal。
+        <button class="btn" id="b-c1">复制启动命令</button> <button class="btn" id="b-c2">复制 goal</button>
+        <details style="display:inline-block;margin-left:8px"><summary class="sub">查看命令和 goal 全文</summary><pre>${esc(st.launch_cmd)}</pre><pre>${esc(st.goal_txt || "")}</pre></details></div>`;
+      $("#b-c1").onclick = () => copy(st.launch_cmd, "已复制启动命令");
+      $("#b-c2").onclick = () => copy(st.goal_txt, "已复制 goal");
+    } else {
     $("#banner").innerHTML = `<div class="bar"><b class="good">✓</b> baseline ${f4(st.baseline_val)}（${esc((bj.steps.find((s) => s.key === "compare") || {}).detail || "")}）。现在可以启动 agent：
       <pre>${esc(st.launch_cmd)}</pre>
       进入沙盒后运行 <code>cx-start</code>，再粘贴 goal（<code>cat /task/goal.txt</code>，或用下面的按钮复制）。
@@ -183,6 +191,7 @@ function renderMain() {
       <button class="btn" id="b-c1">复制启动命令</button> <button class="btn" id="b-c2">复制 goal</button></div>`;
     $("#b-c1").onclick = () => copy(st.launch_cmd, "已复制启动命令");
     $("#b-c2").onclick = () => copy(st.goal_txt, "已复制 goal");
+    }
   } else $("#banner").innerHTML = "";
   if (!$("#left") || !$("#right")) {
     $("#app").innerHTML = `<div class="grid"><div id="left"></div><div id="right"></div></div>`;
