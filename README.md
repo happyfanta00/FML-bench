@@ -132,6 +132,28 @@ credential_process = /usr/local/bin/aws configure export-credentials --profile d
 
 这个文件里没有任何密钥，沙盒会以只读方式使用它。
 
+配置完成后，建议直接启动一次 Codex，和它对话一句，确认配置正确。在实例上直接运行的 Codex 读取的是 `~/.codex/config.toml`，所以先创建这个文件，告诉它通过 Bedrock 调用模型：
+
+```toml
+model_provider = "amazon-bedrock"
+model = "openai.gpt-6-astra"
+model_reasoning_effort = "high"
+
+[model_providers.amazon-bedrock.aws]
+profile = "codex-bedrock"
+region = "us-west-2"
+```
+
+这个文件只在实例上直接使用 Codex 时才会用到。实验时，沙盒里的 Codex 使用的是每次运行单独生成的配置，不会读取它。
+
+然后启动 Codex：
+
+```bash
+codex
+```
+
+在 Codex 的界面里输入 `who are you?` 并回车。如果 Codex 正常回答（例如“I'm Codex, an AI assistant from OpenAI ……”），说明 Codex 的安装、Bedrock 的调用权限和上面的 AWS 配置都没有问题。输入 `/quit` 退出。如果报错说无法调用模型或者没有权限，请检查第 1 步的 IAM 角色和模型访问权限，以及这一步的 `~/.aws/config`。
+
 ### 第 4 步：下载代码
 
 ```bash
