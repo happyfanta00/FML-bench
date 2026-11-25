@@ -1,15 +1,15 @@
-# auto-research-simple-demo：在沙盒里观察 Codex 自主做机器学习研究
+# Auto-Research-Simple-Demo：在沙盒里观察 Codex 自主做机器学习研究
 
 这个项目让 Codex（goal 模式）作为一个自动做研究的 agent，在隔离的沙盒里反复修改一个机器学习任务的代码、训练、评测，并用一个网页实时展示它的整个研究过程。
 
 项目基于 [FML-bench](https://github.com/qrzou/FML-bench)（论文 [arXiv:2605.17373](https://arxiv.org/abs/2605.17373)）。FML-bench 是一个评测自动机器学习研究 agent 的基准：给 agent 一份 baseline 代码、一套评测脚本和一段任务说明，让它不断改进 baseline。
 
-## 目录
+## Contents
 
 - [1. What we do](#1-what-we-do)
-- [2. 效果展示](#2-效果展示)
+- [2. Demo](#2-demo)
 - [3. How to use](#3-how-to-use)
-- [致谢与许可](#致谢与许可)
+- [Acknowledgements and License](#acknowledgements-and-license)
 
 
 ## 1. What we do
@@ -47,7 +47,7 @@
 - **当前最好模型（页面右侧）**：显示这个模型在固定的一批验证集样本上的预测，以及按“标签是否被噪声翻转”和“颜色是否与标签一致”分成四组的准确率。从这四组准确率可以直接看出模型依靠的是数字的形状还是颜色。页面还会用两种不同的分组顺序各预测一遍，如果两次结果不同，就标出“预测依赖 batch 组成”，说明模型在利用同一批测试样本之间的统计信息。
 
 
-## 2. 效果展示
+## 2. Demo
 
 ![Codex goal 模式改进 ColoredMNIST 的一次完整运行](assets/codex_goal_coloredmnist_viz.png)
 
@@ -59,7 +59,7 @@
 
 ## 3. How to use
 
-这一节说明如何从一台刚创建的 AWS g6.2xlarge 实例开始，配置好全部环境，然后在 Mac 的浏览器里观看 Codex（goal 模式）改进 ColoredMNIST 任务的全过程。
+这一节说明如何从一台刚创建的 AWS g6.2xlarge 实例开始，配置好全部环境，然后在本地的浏览器里观看 Codex（goal 模式）改进 ColoredMNIST 任务的全过程。
 
 整个流程分为两部分：第一部分（第 1～5 步）是一次性的准备工作，大约需要 15 分钟；第二部分（第 6～9 步）是每次实验都要做的事情，一次实验大约 1 小时。
 
@@ -166,7 +166,7 @@ VIRTUAL_ENV=~/fml_envs/viz uv pip install "fastapi==0.118.*" "uvicorn==0.37.*"
 
 到这里，一次性的准备工作就完成了。环境和数据是否真的可用，会在后面用网页上的“运行 baseline”一并检查。
 
-### 第 6 步：启动网页服务，并在 Mac 上打开页面
+### 第 6 步：启动网页服务，并在本地打开页面
 
 在实例上启动网页服务。它只在实例本机的 8765 端口上提供服务，外部无法直接访问：
 
@@ -175,13 +175,13 @@ cd ~/FML-bench
 setsid nohup scripts/codex/viz/serve.sh > /tmp/viz_server.log 2>&1 < /dev/null &
 ```
 
-在 Mac 上打开一个终端，建立 SSH 端口转发（这个终端窗口在看页面期间要一直开着）：
+在本地打开一个终端，建立 SSH 端口转发（这个终端窗口在看页面期间要一直开着）：
 
 ```bash
 ssh -i <你的密钥文件> -L 8765:localhost:8765 ec2-user@<实例的公网地址>
 ```
 
-然后在 Mac 的浏览器里打开 http://localhost:8765 。
+然后在本地的浏览器里打开 http://localhost:8765 。
 
 ### 第 7 步：在页面上新建一次运行，并复现 baseline
 
@@ -233,7 +233,7 @@ baseline 完成后，页面顶部会出现“复制启动命令”和“复制 g
 
 | 现象 | 原因和处理方法 |
 |---|---|
-| 浏览器打不开 http://localhost:8765 | 检查 Mac 上的 SSH 端口转发窗口是否还开着；在实例上用 `cat /tmp/viz_server.log` 查看网页服务有没有报错，必要时按第 6 步重新启动 |
+| 浏览器打不开 http://localhost:8765 | 检查本地的 SSH 端口转发窗口是否还开着；在实例上用 `cat /tmp/viz_server.log` 查看网页服务有没有报错，必要时按第 6 步重新启动 |
 | 启动命令提示 “run the baseline first” | baseline 还没有完成。回到页面，按第 7 步运行 baseline |
 | baseline 的“显卡”检查失败 | 用 `nvidia-smi` 确认显卡正常，并确认没有别的程序占满显存 |
 | baseline 的“与参考值比较”显示警告 | 说明这次的分数和仓库里记录的 L4 参考值（0.2626）不完全一样。如果实例不是 g6 系列（显卡不是 NVIDIA L4），有差别是正常的，环境仍然可以使用；如果是 L4 却差得很多，请检查第 5 步是否全部成功 |
@@ -243,7 +243,7 @@ baseline 完成后，页面顶部会出现“复制启动命令”和“复制 g
 
 
 
-## 致谢与许可
+## Acknowledgements and License
 
 本项目基于 [FML-bench](https://github.com/qrzou/FML-bench) 修改而来，沿用其 Apache-2.0 许可证（见 `LICENSE`）。各个任务使用的上游代码库和数据集遵循它们各自的许可证。
 
