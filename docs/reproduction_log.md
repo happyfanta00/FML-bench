@@ -257,6 +257,87 @@ sandbox/run_in_bwrap.sh --shell [-c CMD]     # 在同一个沙盒里开 shell �
   - 能做 GPU 计算，`CUDA_VISIBLE_DEVICES=""` 时没有 GPU；
   - Bedrock 调用、DNS、HTTPS 都正常。
 
+### 4.4 ai_scientist_v2：按官方实现恢复阶段衔接、记录模型自己的方案，并修复 SEARCH/REPLACE 解析
+
+FML-bench 里的 ai_scientist_v2（`agents/ai_scientist_v2/agent.py`）是从官方实现 [SakanaAI/AI-Scientist-v2](https://github.com/SakanaAI/AI-Scientist-v2)（对照的版本是 commit `96bd516`）移植过来的。下面三处修改都针对 FML-bench 版本和官方实现不一致，或者 FML-bench 版本自身出错的地方。
+
+**修改 1：每个阶段从哪里开始（`agents/ai_scientist_v2/agent.py` 的 `_bfts_loop`）**
+
+- 官方实现：
+  - 每个阶段开始时新建一个 Journal，并把上一阶段最佳节点的副本放进去，作为一个根节点（`agent_manager.py` 的 `run()` 调用 `_get_best_implementation()`，副本的父节点和子节点都被清空）。
+  - 第 1 阶段之后的所有阶段都设 `num_drafts=0`，不再从头起草新的 draft。
+- FML-bench 版本目前的做法：
+  - 新阶段的 Journal 是空的，上一阶段的最佳节点不在里面。
+  - 第 3 阶段设 `num_drafts=1`。因为 Journal 里还没有成功节点，第一批 4 个节点全是 draft，而 draft 开始前会把目标文件恢复成 baseline 代码。所以第 3 阶段是从 baseline 代码重新起草的，第 2 阶段的结果在第 3 阶段不起作用。
+  - 第 4 阶段从第 3 阶段的最佳节点出发。第 3 阶段的最佳节点可能比第 2 阶段的最佳节点差，所以第 4 阶段的起点不一定是全局最佳。
+- 修改后的做法：
+  - 从第 2 阶段起，每个阶段开始时，先把上一阶段最佳节点的副本放进新 Journal，作为唯一的根节点。副本保留代码、val 指标、方案和分析，父节点和子节点清空。放入副本不算一步，也不重新运行。
+  - 第 2 阶段和第 4 阶段：每一步都从这个根节点强制改进。这一点和官方实现一样。
+  - 第 3 阶段：不再起草 draft（`num_drafts=0`），按树搜索的规则，从这个根节点和它的后代里选父节点。
+  - 第 1 阶段不变：从 baseline 代码起草 3 个 draft。
+  - 如果之前的阶段一个成功节点都没有，就没有可以放入的副本，这一阶段仍按目前的方式从 baseline 代码起草 1 个 draft。官方实现在这种情况下会直接结束实验，FML-bench 版本保留继续搜索的做法。
+- 修改后的效果：每个阶段的最佳节点不会比上一阶段的最佳节点差；第 4 阶段的起点就是到第 3 阶段结束为止的全局最佳。
+
+**修改 2：Memory 记录模型自己的方案（`agents/code_editor.py`、`agents/ai_scientist_v2/agent.py`）**
+
+- 官方实现：模型每次回复都要先用 7～10 句自然语言写出方案，再写代码。这段方案存为节点的 `plan`。Memory 由 LLM 总结生成，总结的输入里每个实验的 "Design" 就是这段完整的方案。
+- FML-bench 版本目前的做法：节点的 `plan` 存的是交给模型的指令的前 500 个字符。这些指令都以同一段固定文字开头（"## Introduction / You are an experienced AI researcher…"），所以 Memory 里的 "Design" 看不出每个实验具体改了什么。
+- 修改后的做法：
+  - `CodeEditor` 新增参数 `request_plan`，默认为 False。设为 True 时：
+    - 输出格式要求回复先写一个 `## Plan` 部分，用 7～10 句自然语言说明：改了代码的哪些地方、为什么预计能提升指标、基于之前哪个结果；然后再写文件块。
+    - 输出格式里"不要在规定格式之外写解释"这一条，改为"除了 `## Plan` 部分，不要在规定格式之外写解释"。
+    - 从回复里取出 `## Plan` 部分的文字（最多 2000 个字符），放在 `EditResult.plan` 里。
+  - ai_scientist_v2 创建 `CodeEditor` 时设 `request_plan=True`。draft、improve、debug 三种节点的 `plan` 都改为这段方案。
+    - 回复里没有 `## Plan` 部分时，`plan` 记为 "(No plan recorded: the editor response had no ## Plan section.)"。
+    - 代码编辑失败时，`plan` 记为编辑失败的原因。
+  - Memory 总结输入里的 "Design"，以及执行后分析提示词里的 "Plan"，都改为使用完整的方案，不再截断到 300、200、500 个字符。
+  - `summary.json` 里每一步的 `idea_description` 取自 `plan` 的前 200 个字符，因此会变成方案的开头。打分脚本 `compute_agent_metrics.py` 不使用这个字段。
+  - 其他 agent 不设 `request_plan`，提示词和行为都不变。
+
+**修改 3：修复 SEARCH/REPLACE 块的解析（`agents/code_editor.py` 的 `_extract_search_replace`）**
+
+- 问题：
+  - 目标文件超过 500 行时，`CodeEditor` 要求模型只返回改动的部分，格式是 SEARCH/REPLACE 块。
+  - 提示词的示例只写了一次 `### FILE:` 行，并说明"每个文件可以包含多个 SEARCH/REPLACE 块"。
+  - 但解析用的正则表达式要求每个 SEARCH/REPLACE 块前面都紧跟一个 `### FILE:` 行。
+  - 所以模型按示例只写一次 `### FILE:` 行时，第一个块之后的所有块都被丢弃，日志里没有任何警告。
+  - 这段代码来自 FML-bench 仓库的初始提交（`b828fe2`），不是官方 AI-Scientist-v2 的代码。官方实现每次生成完整的单文件脚本，不使用 SEARCH/REPLACE 块。
+- 修改后的做法：
+  - 先找出回复里所有的 `### FILE:` 行，每个 SEARCH/REPLACE 块归属于它前面最近的那个 `### FILE:` 行。
+  - "每个文件只写一次 `### FILE:` 行"和"每个块前面都写 `### FILE:` 行"两种写法都能正确解析。
+  - 提示词不变。
+- 影响范围：所有使用 `CodeEditor` 的 agent，包括 ai_scientist_v2 和 autoresearch。
+
+**验证**（2026-11-27，g7e.24xlarge）
+
+- SEARCH/REPLACE 解析：用新的解析代码重新解析 GPT-6.2 Sol 正式测试（2026-11-25 ～ 11-26，`benchmark_results/gpt62sol/`）里全部 code_editor 回复，模型写出的 1904 个 SEARCH/REPLACE 块全部被解析出来；修改前的解析代码只解析出 337 个。另外用构造的回复测试了以下几种情况：每个文件只写一次 `### FILE:` 行、每个块前面都写 `### FILE:` 行、整文件块和 SEARCH/REPLACE 块混在一起，结果都正确。
+- `## Plan` 部分：能正确取出，超过 2000 个字符时会截断，回复里没有这个部分时返回空。不设 `request_plan` 时，输出格式说明和修改前逐字相同。
+- 阶段衔接（不调用 LLM，也不训练）：把 draft、improve、debug 换成随机产生指标的替身，运行真实的 `_bfts_loop` 共 20 步，结果如下：
+  - 第 2、3、4 阶段的 Journal 都只有 1 个根节点，指标等于上一阶段的最佳；
+  - 第 3 阶段没有新起草的 draft；
+  - 各阶段的最佳没有下降。
+- 实际运行：在沙盒里用 ai_scientist_v2 × GPT-6.2 Sol 跑 domainbed，`max_steps=10`，4 个阶段分别是 1、2、5、2 步，超时 2400 秒。日志在 `docs/reproduction_logs/smoke_aisv2_stagefix/`，结果在 `benchmark_results_smoke/aisv2_stagefix/`。
+  - 各阶段的起点和最佳 val（in_acc）：
+    - 第 1 阶段：从 baseline 代码起草，最佳 0.6798；
+    - 第 2 阶段：从 0.6798 的副本强制改进，最佳 0.7315；
+    - 第 3 阶段：从 0.7315 的副本开始，`num_drafts=0`，5 步都是 improve，最佳 0.7378；
+    - 第 4 阶段：从 0.7378 的副本强制改进，最佳 0.7390。
+  - 最终 test 用第 9 步的代码，test 0.7492。
+  - 10 次 code_editor 调用都以 `## Plan` 开头，方案都被记录下来。`summary.json` 里每一步的 `idea_description` 都是方案的开头，例如第 6 步是 "I’ll build on the 73.15% color-invariant ERM recipe by changing only how the CNN pools its …"。
+  - `domainbed/algorithms.py` 有 2552 行，所以走 SEARCH/REPLACE 格式。模型一共写了 21 个块，21 个都被解析出来；日志里没有"找不到 SEARCH 内容"或"应用后语法错误"的警告，也没有 LLM 调用失败。
+
+**这次不修改、和官方实现仍然不同的地方**
+
+- 训练日志：官方实现在执行后分析和 debug 时，会把执行输出（`term_out`）交给模型。FML-bench 版本只给"是否成功"和主指标，失败时再给报错的末尾。
+- 执行时间反馈：官方实现在实验运行时间不到超时上限的一半时，会提示模型增加训练轮数或者换用更大的模型。FML-bench 版本没有这个反馈。
+- 第 2 阶段和第 4 阶段的想法：官方实现会专门生成调参想法和消融想法，并记录已经试过的名字，避免重复。FML-bench 版本使用通用的 improve 步骤加阶段目标，没有去重。
+- 选最佳节点：官方实现由 LLM 综合指标、训练过程和图来选。FML-bench 版本只看 val 指标。
+- 各阶段的长度：官方实现每个阶段有迭代次数上限，由 LLM 判断阶段是否完成。FML-bench 版本按总步数的 10%、20%、50%、20% 固定分配。
+
+**对已有结果的影响**
+
+第 5 章里 ai_scientist_v2 的结果（5.1 的 Opus 5.5、5.5 的 GPT-6 Astra、5.6 的 DeepSeek-V4.1-Flash），以及 2026-11-25 ～ 11-26 的 GPT-6.2 Sol 正式测试，都是在修改之前得到的。5.3 的 autoresearch 也通过 `CodeEditor` 修改代码，目标文件超过 500 行时（例如 domainbed 的 `domainbed/algorithms.py` 有 2552 行）同样经过修改 3 涉及的解析代码；那次运行实际丢失了多少个块，要看 g7e.12xlarge 上的日志才能确定。修改之后的结果不能和这些结果直接比较，要比较就需要用修改后的代码重新运行。
+
 ---
 
 ## 5. 实验结果

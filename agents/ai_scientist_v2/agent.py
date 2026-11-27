@@ -10,7 +10,9 @@ Original v2 key features (preserved):
   - Simulated batch selection (num_parallel nodes per round, tree-level dedup)
   - 4-stage pipeline: basic → tuning → creative → ablation
   - Per-stage independent Journal ("intentional forgetting")
-  - Inter-stage best-node carryover
+  - Inter-stage best-node carryover: each later stage's Journal starts with a copy of the
+    previous stage's best node as its only root, and drafts no new nodes (num_drafts=0)
+  - node.plan is the model's own natural-language plan for the change (Journal memory "Design")
   - Dynamic sub-stages with LLM goal generation
   - LLM-generated journal memory (successful + failed experiments analysis)
   - Post-execution LLM analysis -> node.analysis (not counted as step)
@@ -189,7 +191,7 @@ class Journal:
             for i, n in enumerate(good):
                 parts.append(
                     f"\n### Experiment {i+1}\n"
-                    f"Design: {n.plan[:300]}\n"
+                    f"Design: {n.plan}\n"
                     f"Results: {n.analysis}\n"
                     f"{metric_name}: {n.primary_metric}"
                 )
@@ -202,7 +204,7 @@ class Journal:
                 err_preview = (n.error_context[:200] if n.error_context else "unknown error")
                 parts.append(
                     f"\n### Failed Experiment {i+1}\n"
-                    f"Design: {n.plan[:200]}\n"
+                    f"Design: {n.plan}\n"
                     f"Error: {err_preview}\n"
                     f"Debug Depth: {n.debug_depth}"
                 )
@@ -347,6 +349,7 @@ class AIScientistV2Agent(BaseAgent):
             log_dir=workspace,
             metric_name=self.metric_name,
             metric_direction=self.direction,
+            request_plan=True,  # node.plan = the model's own plan, as in the original
         )
 
         # Initialize
@@ -485,22 +488,39 @@ class AIScientistV2Agent(BaseAgent):
             if best_prev_snapshot is not None:
                 self._restore_snapshot(best_prev_snapshot)
 
-            # 3) Stage-specific behavior
-            #    Stage 1/3: normal BFTS with batch selection
-            #    Stage 2/4: force improve from previous best (original behavior)
-            stage_num_drafts = self.num_drafts if stage_idx == 0 else 1
-            force_improve = stage_idx in (1, 3) and best_prev_node is not None
+            # 3) Seed the new Journal with a copy of the previous stage's best node as a
+            #    root (original agent_manager.py run() appends _get_best_implementation(prev)
+            #    to the new stage's journal). The seed is not a step and is not re-executed.
+            seed_node = None
+            if stage_idx > 0 and best_prev_node is not None:
+                seed_node = self._copy_as_stage_seed(best_prev_node)
+                self.journal.append(seed_node)
+
+            # 4) Stage-specific behavior
+            #    Stage 1: BFTS from num_drafts drafts written on the baseline code.
+            #    Stage 3: BFTS with no new drafts (original num_drafts=0 for every stage
+            #             after the first); it expands the seed and its descendants.
+            #    Stage 2/4: force improve from the seed (original parallel_agent.py:2009-2015).
+            #    If no stage has produced a working node yet there is no seed; the stage
+            #    then drafts one node from the baseline code as before.
+            if stage_idx == 0:
+                stage_num_drafts = self.num_drafts
+            else:
+                stage_num_drafts = 0 if seed_node is not None else 1
+            force_improve = stage_idx in (1, 3) and seed_node is not None
 
             mode_str = "force-improve" if force_improve else f"BFTS(drafts={stage_num_drafts})"
+            if seed_node is not None:
+                mode_str += f", seeded from previous best ({self.metric_name}={seed_node.primary_metric})"
             print(f"\n{'='*60}")
             print(f"Stage {stage_idx+1}/4: {stage_def['name']} "
                   f"(budget={stage_budget}, mode={mode_str})")
             print(f"{'='*60}")
 
-            # 4) Run stage
+            # 5) Run stage
             if force_improve:
-                # Stage 2/4: all steps are forced improve from previous best
-                # (original parallel_agent.py:2009-2015)
+                # Stage 2/4: all steps are forced improve from the seed (the previous
+                # stage's best) (original parallel_agent.py:2009-2015)
                 while (self.step_count - stage_step_start < stage_budget
                        and self.budget_remaining()):
                     # Sub-stage check
@@ -508,7 +528,7 @@ class AIScientistV2Agent(BaseAgent):
                         completed, reason = self._check_substage_completion()
                         if completed:
                             self._transition_substage(stage_def)
-                    self._improve(best_prev_node)
+                    self._improve(seed_node)
             else:
                 # Stage 1/3: normal BFTS batch selection
                 while (self.step_count - stage_step_start < stage_budget
@@ -540,7 +560,7 @@ class AIScientistV2Agent(BaseAgent):
                         else:
                             self._improve(target)
 
-            # 5) Save stage's best for next stage
+            # 6) Save stage's best for next stage
             stage_best = self.journal.get_best_node()
             if stage_best is not None and stage_best.code_snapshot:
                 best_prev_snapshot = stage_best.code_snapshot
@@ -729,6 +749,41 @@ class AIScientistV2Agent(BaseAgent):
                 stack.extend(n.children)
         return leaves
 
+    @staticmethod
+    def _copy_as_stage_seed(node: TreeNode) -> TreeNode:
+        """Copy of a finished node to seed the next stage's Journal as a root.
+
+        Mirrors original agent_manager._get_best_implementation(): a clean copy with
+        parent and children reset. It keeps the code, metric, plan and analysis, and
+        the root idea so improve() still inherits it.
+        """
+        return TreeNode(
+            plan=node.plan,
+            action=node.action,
+            code_snapshot=dict(node.code_snapshot),
+            parent=None,
+            val_result=node.val_result,
+            primary_metric=node.primary_metric,
+            is_buggy=node.is_buggy,
+            error_context=node.error_context,
+            analysis=node.analysis,
+            idea=node.root_idea,
+        )
+
+    def _step_plan(self) -> str:
+        """The model's own plan for the edit just made (the "## Plan" section).
+
+        Stored as node.plan, which the Journal memory shows as "Design" (original
+        journal.generate_summary uses node.plan, the model's solution sketch).
+        """
+        result = getattr(self, "_last_edit_result", None)
+        plan = getattr(result, "plan", None) if result is not None else None
+        if plan:
+            return plan
+        if result is not None and result.error:
+            return f"(No plan recorded: the code edit failed: {result.error[:300]})"
+        return "(No plan recorded: the editor response had no ## Plan section.)"
+
     # ------------------------------------------------------------------
     # Draft operation (from original parallel_agent.py:453-492)
     # ------------------------------------------------------------------
@@ -753,7 +808,7 @@ class AIScientistV2Agent(BaseAgent):
         val = self._execute_val(run_id=self.step_count)
 
         node = TreeNode(
-            plan=instruction[:500], action="draft",
+            plan=self._step_plan(), action="draft",
             code_snapshot=snap, parent=None,
             val_result=val,
             primary_metric=val.get("primary_metric"),
@@ -806,7 +861,7 @@ class AIScientistV2Agent(BaseAgent):
         val = self._execute_val(run_id=self.step_count)
 
         node = TreeNode(
-            plan=instruction[:500], action="improve",
+            plan=self._step_plan(), action="improve",
             code_snapshot=snap, parent=parent,
             val_result=val,
             primary_metric=val.get("primary_metric"),
@@ -853,7 +908,7 @@ class AIScientistV2Agent(BaseAgent):
         val = self._execute_val(run_id=self.step_count)
 
         node = TreeNode(
-            plan=instruction[:500], action="debug",
+            plan=self._step_plan(), action="debug",
             code_snapshot=snap, parent=parent,
             val_result=val,
             primary_metric=val.get("primary_metric"),
@@ -900,7 +955,7 @@ class AIScientistV2Agent(BaseAgent):
             "Analyze the execution output, determine if there were any bugs, "
             "and provide a summary of the findings.\n\n"
             f"## Task\n{self.task_description}\n\n"
-            f"## Plan\n{node.plan[:500]}\n\n"
+            f"## Plan\n{node.plan}\n\n"
             f"## Execution Result\n"
             f"Success: {success}\n"
             f"Primary Metric ({self.metric_name}): {metric}\n"

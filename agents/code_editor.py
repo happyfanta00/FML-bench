@@ -77,6 +77,7 @@ class EditResult:
     token_usage: Optional[dict] = None
     raw_response: Optional[str] = None
     log_path: Optional[str] = None  # Path to the prompt+response log file
+    plan: Optional[str] = None  # Text of the "## Plan" section (only when request_plan=True)
 
 
 class CodeEditor:
@@ -86,6 +87,7 @@ class CodeEditor:
     """
 
     FILE_SIZE_THRESHOLD = 500  # lines; above this, use search/replace format
+    PLAN_MAX_CHARS = 2000  # cap on the stored "## Plan" text
 
     def __init__(
         self,
@@ -96,6 +98,7 @@ class CodeEditor:
         log_dir: Optional[str] = None,
         metric_name: Optional[str] = None,
         metric_direction: Optional[str] = None,
+        request_plan: bool = False,
     ):
         """
         Args:
@@ -107,7 +110,12 @@ class CodeEditor:
                      to file is skipped.
             metric_name: Name of the primary metric (e.g., "accuracy_mean").
             metric_direction: Whether higher or lower is better ("higher" / "lower").
+            request_plan: If True, the response must start with a "## Plan" section (a
+                     natural-language sketch of the change, as in the original
+                     AI-Scientist-v2 response format); its text is returned in
+                     EditResult.plan. Agents that do not set it get the old prompt.
         """
+        self.request_plan = request_plan
         self.client, self.model_name = create_client(model, provider)
         self.target_files = [os.path.abspath(f) for f in target_files]
         self.task_description = task_description
@@ -205,6 +213,7 @@ class CodeEditor:
                 token_usage=token_usage,
                 raw_response=content,
                 log_path=log_path,
+                plan=self._extract_plan(content) if self.request_plan else None,
             )
 
         return EditResult(
@@ -213,6 +222,7 @@ class CodeEditor:
             token_usage=token_usage,
             raw_response=content,
             log_path=log_path,
+            plan=self._extract_plan(content) if self.request_plan else None,
         )
 
     # ------------------------------------------------------------------
@@ -273,15 +283,30 @@ class CodeEditor:
         )
 
         # Output format specification
-        parts.append(self._output_format_instructions(has_small=bool(small), has_large=bool(large)))
+        parts.append(self._output_format_instructions(
+            has_small=bool(small), has_large=bool(large), request_plan=self.request_plan))
 
         user_prompt = "\n\n".join(parts)
         return SYSTEM_PROMPT, user_prompt
 
     @staticmethod
-    def _output_format_instructions(has_small: bool, has_large: bool) -> str:
+    def _output_format_instructions(has_small: bool, has_large: bool,
+                                    request_plan: bool = False) -> str:
         """Generate output format instructions based on file sizes."""
         sections: List[str] = ["## Output Format\n"]
+
+        if request_plan:
+            # Same role as the 7-10 sentence solution sketch in the original
+            # AI-Scientist-v2 response format; the agent stores it as the node's plan.
+            sections.append(
+                "Start your response with the proposed change written in natural language "
+                "(7-10 sentences) under this heading:\n"
+                "## Plan\n"
+                "<which parts of the code you change, why you expect the change to improve "
+                "the metric, and which earlier result it builds on>\n"
+                "\n"
+                "Put the file blocks described below after the plan."
+            )
 
         if has_small:
             sections.append(
@@ -309,7 +334,9 @@ class CodeEditor:
             "Important:\n"
             "- Use the exact file paths shown above.\n"
             "- Ensure all code is syntactically valid Python.\n"
-            "- Do not add explanations outside the specified format."
+            + ("- Apart from the ## Plan section, do not add explanations outside the specified format."
+               if request_plan else
+               "- Do not add explanations outside the specified format.")
         )
 
         return "\n\n".join(sections)
@@ -399,26 +426,50 @@ class CodeEditor:
     def _extract_search_replace(response: str) -> List[Tuple[str, str, str]]:
         """Extract search/replace blocks from the LLM response.
 
-        Expected format:
+        Expected format (the FILE line may be written once for several blocks of the
+        same file, as the prompt allows, or repeated before every block):
             ### FILE: <path>
             <<<<<<< SEARCH
             <search_text>
             =======
             <replace_text>
             >>>>>>> REPLACE
+            <<<<<<< SEARCH
+            ...
+            >>>>>>> REPLACE
+
+        Every block belongs to the nearest FILE line before it. (The previous single
+        regex required a FILE line directly before each block, so every block after
+        the first one under a shared FILE line was silently dropped.)
 
         Returns:
-            List of (filepath, search_text, replace_text) tuples.
+            List of (filepath, search_text, replace_text) tuples, in response order.
         """
-        pattern = (
-            r"### FILE:\s*(\S+)\s*\n"
+        header = re.compile(r"### FILE:\s*(\S+)\s*\n")
+        block = re.compile(
             r"<<<<<<< SEARCH\n"
             r"(.*?)\n"
             r"=======\n"
             r"(.*?)\n"
-            r">>>>>>> REPLACE"
+            r">>>>>>> REPLACE",
+            re.DOTALL,
         )
-        return re.findall(pattern, response, re.DOTALL)
+        headers = list(header.finditer(response))
+        blocks: List[Tuple[str, str, str]] = []
+        for i, h in enumerate(headers):
+            end = headers[i + 1].start() if i + 1 < len(headers) else len(response)
+            for search, replace in block.findall(response, h.end(), end):
+                blocks.append((h.group(1), search, replace))
+        return blocks
+
+    @classmethod
+    def _extract_plan(cls, response: str) -> Optional[str]:
+        """Return the text of the "## Plan" section (up to the first FILE line), or None."""
+        m = re.search(r"^##\s*Plan\s*\n(.*?)(?=### FILE:|\Z)", response, re.DOTALL | re.MULTILINE)
+        if not m:
+            return None
+        plan = m.group(1).strip()
+        return plan[: cls.PLAN_MAX_CHARS] if plan else None
 
     @staticmethod
     def _syntax_ok(code: str) -> bool:
